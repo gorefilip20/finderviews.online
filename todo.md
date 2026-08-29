@@ -30,3 +30,31 @@
 - [x] Generate and use the Finder logo and supporting visual assets.
 - [x] Implement the interactive discovery, filtering, lead saving, and outreach-note experience.
 - [x] Verify responsive behavior, key actions, and visual consistency before delivery.
+
+## Growth Platform Build (features 1–17)
+
+- [x] 0. Restore the missing source layer so the project builds: `server/_core/*`, `client/src/_core/hooks/useAuth`, `drizzle/schema.ts`.
+- [x] 1. Rising, Under-Built finder — proven demand (rating, review volume, momentum) with no standalone website.
+- [x] 2. Decaying web presence finder — live audit of security, mobile, speed, freshness, legacy markup, parked pages.
+- [x] 3. Partnership and referral finder — complementary, non-competing categories around an anchor business.
+- [x] 4. New and expanding business finder, behind a registry adapter.
+- [x] 5. Advertising-spend signal, verified against the public ad library.
+- [x] 6. Local and on-site hiring source, behind an adapter, alongside the remote-only Jobicy feed.
+- [x] 7. Digital Gap Score — gap index × demand index, with a per-factor evidence breakdown and a stated confidence.
+- [x] 8. ICP profiles — defined once per workspace and applied to every finder's ranking.
+- [x] 9. Deal-band estimator from category, market and team size, with an explicit uncertainty note.
+- [x] 10. Saved searches with per-search cadence and enable/disable.
+- [x] 11. Monitoring, alerts and the weekly field-report digest, with a secured scheduler hook.
+- [x] 12. Territory claims and workspace-wide suppression; reaching "Contacted" suppresses automatically.
+- [x] 13. Instant audit and proposal document — scope derived only from failed checks, print-ready.
+- [x] 14. Homepage concept generator, built from the business's own public listing data.
+- [x] 15. Pipeline with stages, assignment, notes, deal value, follow-up dates and a change history.
+- [x] 16. CSV export (formula-injection safe) plus HubSpot and Airtable sync using the customer's own token.
+- [x] 17. Team seats, invitations by email, roles, seat limits and lead assignment.
+
+### Open items
+
+- [ ] Connect a live business-listing credential (`PLACES_API_KEY`) and verify the four market finders against real data.
+- [ ] Provision the database, run `pnpm db:push`, and verify the pipeline, watchlist and proposal flows end to end in the browser.
+- [ ] Verify the signed-in browser AI brief flow, including success, loading, error, empty, and review states.
+- [ ] Complete the final end-to-end opportunity-brief check after the signed-in browser flow is verified.

@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 
 type Lead = {
@@ -432,6 +433,9 @@ export default function Home() {
           <button onClick={() => scrollTo("faq")}>FAQ</button>
         </nav>
         <div className="finder-nav__actions">
+          <Link href="/app" className="nav-cta">
+            Research desk <ArrowUpRight size={15} strokeWidth={2.5} />
+          </Link>
           <button className="nav-cta" onClick={() => scrollTo("finder-workspace")}>
             Find opportunities <ArrowDownRight size={15} strokeWidth={2.5} />
           </button>
