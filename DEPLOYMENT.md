@@ -58,6 +58,23 @@ The endpoint refuses the request unless `CRON_SECRET` is set and the header matc
 4. Verify `https://finderviews.online` and `https://www.finderviews.online` after DNS
    propagation.
 
+## Coverage and contact discovery
+
+Finder covers Europe, the Americas, Africa, Asia and Oceania. No market is excluded.
+
+Contact discovery (`/app` → Contacts) reads only what an organisation published on its own
+site — mailto links, page text, schema.org data, and its contact or legal-notice page. It needs
+no credential and works on a bare deployment.
+
+It deliberately does **not**: look up a private individual by name and location; read contact
+details from a social platform; or permutate an address from a person's name and present it as
+real. Every result links to the page it was read from.
+
+Each result carries the data-protection regime for its market (CAN-SPAM, GDPR/ePrivacy, UK
+GDPR/PECR, CASL, POPIA, NDPA, LGPD, PIPL, PDPA and others), with an unrecognised market
+defaulting to the strictest posture. This is reference information, not legal advice, and the
+interface says so.
+
 ## Routes
 
 - `/` - marketing site, live opportunity search and hiring signals
@@ -65,6 +82,9 @@ The endpoint refuses the request unless `CRON_SECRET` is set and the header matc
 - `/api/trpc/*` - application API
 - `/api/oauth/callback` - sign-in callback
 - `/api/cron/digest` - scheduled digest hook
+
+Contact discovery and the site audit are rate limited per IP for anonymous callers and per
+account for signed-in users.
 
 ## Data handling
 

@@ -3,6 +3,8 @@
  * and uncertainty. No private contact or identity information is fabricated.
  */
 
+import type { MarketRegion } from "@shared/marketCoverage";
+
 export const JOBICY_SOURCE_NAME = "Jobicy";
 export const JOBICY_SOURCE_URL = "https://jobicy.com/jobs-rss-feed";
 export const MAX_JOB_AGE_DAYS = 5;
@@ -67,7 +69,7 @@ export type FreshJob = {
 export type FreshJobSearchInput = {
   role: string;
   country: string;
-  region: "Europe" | "Americas" | "Asia";
+  region: MarketRegion;
   limit?: number;
 };
 
@@ -79,16 +81,38 @@ const countryToJobicyGeo: Record<string, string> = {
   "Hong Kong": "hong-kong",
 };
 
-const regionToJobicyGeo: Record<FreshJobSearchInput["region"], string> = {
+/**
+ * Jobicy documents regional scopes for Europe, APAC and LATAM only. Africa has no documented
+ * scope, and Oceania is covered only through the direct `australia` country filter. Rather than
+ * send an undocumented value — which the provider answers with HTTP 400 — Finder omits the geo
+ * filter entirely for those markets and labels the result as an unscoped worldwide feed, so the
+ * interface never implies a geographic precision the source did not deliver.
+ */
+const regionToJobicyGeo: Partial<Record<MarketRegion, string>> = {
   Europe: "europe",
   Americas: "latam",
   Asia: "apac",
 };
 
-export function getJobicyGeoScope(input: FreshJobSearchInput) {
+export type JobicyGeoScope = {
+  geo: string | null;
+  scope: "country" | "region" | "global";
+};
+
+export function getJobicyGeoScope(input: FreshJobSearchInput): JobicyGeoScope {
   const directGeo = countryToJobicyGeo[input.country];
-  if (directGeo) return { geo: directGeo, scope: "country" as const };
-  return { geo: regionToJobicyGeo[input.region], scope: "region" as const };
+  if (directGeo) return { geo: directGeo, scope: "country" };
+
+  const regionGeo = regionToJobicyGeo[input.region];
+  if (regionGeo) return { geo: regionGeo, scope: "region" };
+
+  return { geo: null, scope: "global" };
+}
+
+export function describeGeoPrecision(scope: JobicyGeoScope, country: string, region: MarketRegion) {
+  if (scope.scope === "country") return `Filtered directly to ${country} by the source.`;
+  if (scope.scope === "region") return `The source has no ${country} filter, so its ${region} regional scope was applied. Results show each listing's own stated geography.`;
+  return `The source publishes no geographic scope covering ${region}, so this is its unscoped worldwide feed filtered by role. Check each listing's own stated geography before assuming it covers ${country}.`;
 }
 
 function stripMarkup(value: string | undefined) {
@@ -165,7 +189,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   if (role && role !== "All hiring roles") params.set("tag", role);
 
   const geoScope = getJobicyGeoScope(input);
-  params.set("geo", geoScope.geo);
+  if (geoScope.geo) params.set("geo", geoScope.geo);
 
   const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
     headers: { Accept: "application/json" },
@@ -180,6 +204,8 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     freshnessDays: MAX_JOB_AGE_DAYS,
     countryFilterApplied: geoScope.scope === "country",
     regionFilterApplied: geoScope.scope === "region",
+    globalFeedOnly: geoScope.scope === "global",
+    precisionNote: describeGeoPrecision(geoScope, input.country, input.region),
     countryContext: input.country,
     regionContext: input.region,
   };

@@ -8,6 +8,7 @@
  */
 import FinderLogo from "@/components/FinderLogo";
 import Audit from "@/components/workspace/Audit";
+import Contacts from "@/components/workspace/Contacts";
 import Discover from "@/components/workspace/Discover";
 import Partnerships from "@/components/workspace/Partnerships";
 import Pipeline from "@/components/workspace/Pipeline";
@@ -18,6 +19,7 @@ import { Note, Panel, Spinner } from "@/components/workspace/shared";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import {
+  AtSign,
   Bell,
   FileText,
   Gauge,
@@ -30,7 +32,7 @@ import {
 import { useState } from "react";
 import { Link } from "wouter";
 
-type Section = "discover" | "audit" | "partnerships" | "pipeline" | "watchlist" | "studio" | "settings";
+type Section = "discover" | "audit" | "contacts" | "partnerships" | "pipeline" | "watchlist" | "studio" | "settings";
 
 const NAV: { group: string; items: { key: Section; label: string; icon: typeof Search }[] }[] = [
   {
@@ -38,6 +40,7 @@ const NAV: { group: string; items: { key: Section; label: string; icon: typeof S
     items: [
       { key: "discover", label: "Discover", icon: Search },
       { key: "audit", label: "Site audit", icon: Gauge },
+      { key: "contacts", label: "Contacts", icon: AtSign },
       { key: "partnerships", label: "Partnerships", icon: Handshake },
     ],
   },
@@ -167,6 +170,7 @@ export default function Workspace() {
 
           {section === "discover" && <Discover agencyName={agencyName} />}
           {section === "audit" && <Audit />}
+          {section === "contacts" && <Contacts />}
           {section === "partnerships" && <Partnerships />}
           {section === "pipeline" && <Pipeline />}
           {section === "watchlist" && <Watchlist />}

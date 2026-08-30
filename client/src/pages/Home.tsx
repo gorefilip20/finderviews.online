@@ -6,7 +6,7 @@ import FinderLogo from "@/components/FinderLogo";
 import { MapView } from "@/components/Map";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
-import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isExcludedMarket } from "@/lib/marketCoverage";
+import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isSupportedCountry } from "@/lib/marketCoverage";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import {
@@ -164,7 +164,7 @@ const faqs = [
   {
     question: "Can I work in any city?",
     answer:
-      `Finder supports ${SUPPORTED_COUNTRY_COUNT} countries across Europe, the Americas, and Asia. African countries are intentionally excluded. Enter a country and then narrow it with a city or neighbourhood; live source coverage can vary by market.`,
+      `Finder covers ${SUPPORTED_COUNTRY_COUNT} countries across Europe, the Americas, Africa, Asia, and Oceania. Enter a country and then narrow it with a city or neighbourhood; live source coverage can vary by market.`,
   },
 ];
 
@@ -264,8 +264,8 @@ export default function Home() {
   const marketLabel = `${location.trim() ? `${location.trim()}, ` : ""}${country}`;
 
   const runLiveSearch = async () => {
-    if (isExcludedMarket(`${country} ${location}`)) {
-      toast.error("Finder supports Europe, the Americas, and Asia. African markets are excluded from this search.");
+    if (!isSupportedCountry(country)) {
+      toast.error(`Finder does not recognise "${country}" as a country it can search.`);
       return;
     }
     setIsSearching(true);
@@ -353,8 +353,8 @@ export default function Home() {
   };
 
   const runHiringSearch = () => {
-    if (isExcludedMarket(jobCountry)) {
-      toast.error("Finder supports Europe, the Americas, and Asia. African markets are excluded from this search.");
+    if (!isSupportedCountry(jobCountry)) {
+      toast.error(`Finder does not recognise "${jobCountry}" as a country it can search.`);
       return;
     }
     setJobSearchRequested(true);
@@ -450,9 +450,9 @@ export default function Home() {
           <div className="hero-map" aria-hidden="true" />
           <div className="hero-grid">
             <div className="hero-copy">
-              <div className="eyebrow"><span className="signal-dot" /> Europe, the Americas + Asia</div>
+              <div className="eyebrow"><span className="signal-dot" /> Worldwide coverage</div>
               <h1>Find the businesses<br />ready to <em>move.</em></h1>
-              <p className="hero-lede">Finderviews searches {SUPPORTED_COUNTRY_COUNT} eligible countries across Europe, the Americas, and Asia for businesses with no listed website, a limited public presence, or a fresh hiring need—so your offer reaches them when change is already underway.</p>
+              <p className="hero-lede">Finderviews searches {SUPPORTED_COUNTRY_COUNT} countries across Europe, the Americas, Africa, Asia, and Oceania for businesses with no listed website, a limited public presence, or a fresh hiring need—so your offer reaches them when change is already underway.</p>
               <div className="hero-actions">
                 <button className="button-primary" onClick={() => scrollTo("finder-workspace")}>
                   Explore opportunities <ArrowDownRight size={17} strokeWidth={2.5} />
@@ -512,7 +512,7 @@ export default function Home() {
               <button className="button-primary button-primary--wide" onClick={runLiveSearch} disabled={isSearching}>
                 {isSearching ? <><LoaderCircle className="spin" size={17} /> Checking listings</> : <><Search size={17} /> Find opportunities</>}
               </button>
-              <p className="card-note"><span className="signal-dot" /> Africa is excluded. Limited presence is a public-listing signal, not a full digital audit.</p>
+              <p className="card-note"><span className="signal-dot" /> Limited presence is a public-listing signal, not a full digital audit.</p>
             </aside>
           </div>
           <div className="hero-index" aria-hidden="true"><span>01</span><div /><span>GLOBAL FIELD NOTE</span></div>
@@ -529,7 +529,7 @@ export default function Home() {
               <span className="method-index">01</span>
               <div className="method-icon"><Compass size={23} /></div>
               <h3>Choose a market</h3>
-              <p>Choose from eligible countries in Europe, the Americas, and Asia, then focus the search with a city or category.</p>
+              <p>Choose any covered country across Europe, the Americas, Africa, Asia, and Oceania, then focus the search with a city or category.</p>
             </article>
             <article className="method-item">
               <span className="method-index">02</span>

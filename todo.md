@@ -58,3 +58,23 @@
 - [ ] Provision the database, run `pnpm db:push`, and verify the pipeline, watchlist and proposal flows end to end in the browser.
 - [ ] Verify the signed-in browser AI brief flow, including success, loading, error, empty, and review states.
 - [ ] Complete the final end-to-end opportunity-brief check after the signed-in browser flow is verified.
+
+
+## Worldwide Coverage and Contact Discovery
+
+- [x] Expand coverage from three regions to five: Europe, the Americas, Africa, Asia, Oceania.
+- [x] Remove the Africa exclusion registry and every piece of interface copy that announced it.
+- [x] Replace market exclusion with recognition plus a country/region agreement check.
+- [x] Widen the hiring adapter to all regions, omitting the geo filter where the provider documents no scope and labelling the reduced precision.
+- [x] Add contact discovery that reads only what an organisation published on its own site.
+- [x] Parse mailto links, page text, `[at]`/`[dot]` obfuscation, schema.org blocks, and the contact or legal-notice page.
+- [x] Filter out site-platform addresses and asset filenames that resemble addresses.
+- [x] Add creator/influencer/model, founder/business-owner, and investor/VC/private-equity targeting segments.
+- [x] Rank results by the inbox that matters for the chosen segment.
+- [x] Add a per-market data-protection layer covering the named regimes, defaulting to the strictest posture for an unrecognised market.
+- [x] Rate limit the contact endpoint and apply the existing private-network request guard to it.
+
+### Open items
+
+- [ ] Run one live contact lookup against a real website after deployment; the build environment's egress proxy blocks outbound HTTP, so only the parsing is verified so far.
+- [ ] Decide whether to add an official platform API adapter for creator business-contact fields, which needs a platform credential and app review.

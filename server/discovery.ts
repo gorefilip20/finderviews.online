@@ -5,7 +5,7 @@
  * They share a single record shape so the pipeline, proposal builder, export and alerting
  * all work identically regardless of which signal surfaced the business.
  */
-import { isExcludedMarket, type MarketRegion } from "@shared/marketCoverage";
+import { isSupportedCountry, regionForCountry, type MarketRegion } from "@shared/marketCoverage";
 import { badRequest, failedPrecondition } from "./_core/errors";
 import {
   allProviderStatuses,
@@ -71,9 +71,18 @@ export function buildDedupeKey(name: string, locality: string) {
   return `${normalize(name)}__${normalize(locality)}`.slice(0, 180);
 }
 
+/**
+ * Coverage is worldwide, so this no longer excludes markets — it validates that the country is
+ * one Finder recognises, and that it actually sits in the region the caller claimed. Catching
+ * that mismatch here stops a search from being run against the wrong regional scope.
+ */
 export function assertEligibleMarket(country: string, region: string) {
-  if (isExcludedMarket(country) || isExcludedMarket(region)) {
-    throw badRequest("Finder's coverage is limited to Europe, the Americas, and Asia.");
+  if (!isSupportedCountry(country)) {
+    throw badRequest(`Finder does not recognise "${country}" as a country it can search.`);
+  }
+  const actual = regionForCountry(country);
+  if (actual && region && actual !== region) {
+    throw badRequest(`${country} is in ${actual}, not ${region}. Select the matching region.`);
   }
 }
 

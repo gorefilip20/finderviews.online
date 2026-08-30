@@ -7,6 +7,8 @@ import { badRequest } from "./_core/errors";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { COMPLIANCE_DISCLAIMER, complianceFor } from "@shared/compliance";
+import { discoverContacts, SEGMENT_KEYS, SEGMENTS, type SegmentKey } from "./contacts";
 import { buildDigestForWorkspace, sendDigest } from "./digest";
 import { findLocalHiring, findPartnerships } from "./discovery";
 import { MAX_JOB_AGE_DAYS, searchFreshJobs } from "./hiring";
@@ -74,7 +76,7 @@ const jobSearchInput = z
   .object({
     role: z.string().trim().min(1).max(120),
     country: z.string().trim().min(1).max(80),
-    region: z.enum(["Europe", "Americas", "Asia"]),
+    region: regionEnum,
   })
   .strict();
 
@@ -771,6 +773,54 @@ export const appRouter = router({
           });
         }
         return built;
+      }),
+  }),
+
+  /* --------------------------------------------------- contact discovery */
+
+  contacts: router({
+    segments: publicProcedure.query(() =>
+      SEGMENT_KEYS.map(key => ({ key, label: SEGMENTS[key].label, note: SEGMENTS[key].note })),
+    ),
+
+    /** Data-protection context for a market, so the rules are visible before anyone sends. */
+    compliance: publicProcedure
+      .input(z.object({ country: z.string().trim().min(1).max(80) }).strict())
+      .query(({ input }) => ({
+        ...complianceFor(input.country),
+        country: input.country,
+        disclaimer: COMPLIANCE_DISCLAIMER,
+      })),
+
+    /**
+     * Reads the contact points an organisation published on its own site. Rate limited because
+     * it makes outbound requests on the caller's behalf.
+     */
+    discover: publicProcedure
+      .input(
+        z
+          .object({
+            website: z.string().trim().min(3).max(400),
+            name: z.string().trim().max(200).optional(),
+            country: z.string().trim().max(80).optional(),
+            segment: z.enum(SEGMENT_KEYS as [SegmentKey, ...SegmentKey[]]).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const key = ctx.user ? `contacts:user:${ctx.user.id}` : `contacts:ip:${ctx.req.ip ?? "unknown"}`;
+        const limit = consume(key, ctx.user ? 120 : 10, 60 * 60 * 1000);
+        if (!limit.ok) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `Too many contact lookups from here. Try again in ${Math.ceil(limit.retryAfterMs / 60000)} minute(s), or sign in for a higher limit.`,
+          });
+        }
+        try {
+          return await discoverContacts(input);
+        } catch (error) {
+          throw badRequest(error instanceof Error ? error.message : "That address could not be checked.");
+        }
       }),
   }),
 

@@ -19,14 +19,21 @@ describe("buildDedupeKey", () => {
 });
 
 describe("assertEligibleMarket", () => {
-  it("permits the supported markets", () => {
+  it("permits every covered region now that coverage is worldwide", () => {
     expect(() => assertEligibleMarket("United States", "Americas")).not.toThrow();
     expect(() => assertEligibleMarket("Japan", "Asia")).not.toThrow();
+    expect(() => assertEligibleMarket("Nigeria", "Africa")).not.toThrow();
+    expect(() => assertEligibleMarket("South Africa", "Africa")).not.toThrow();
+    expect(() => assertEligibleMarket("Australia", "Oceania")).not.toThrow();
   });
 
-  it("keeps excluded markets out of every finder, not just the UI", () => {
-    expect(() => assertEligibleMarket("Nigeria", "Americas")).toThrow(/Europe, the Americas, and Asia/);
-    expect(() => assertEligibleMarket("Kenya", "Asia")).toThrow();
+  it("rejects a country Finder does not recognise", () => {
+    expect(() => assertEligibleMarket("Nowhereland", "Europe")).toThrow(/does not recognise/i);
+  });
+
+  it("catches a country and region that do not agree, so the wrong scope is never searched", () => {
+    expect(() => assertEligibleMarket("Nigeria", "Americas")).toThrow(/Nigeria is in Africa, not Americas/);
+    expect(() => assertEligibleMarket("Japan", "Europe")).toThrow(/Japan is in Asia, not Europe/);
   });
 });
 
