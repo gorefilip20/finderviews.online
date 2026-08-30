@@ -8,7 +8,12 @@ import { invokeLLM, listLLMModels } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { COMPLIANCE_DISCLAIMER, complianceFor } from "@shared/compliance";
-import { discoverContacts, SEGMENT_KEYS, SEGMENTS, type SegmentKey } from "./contacts";
+import { discoverContacts, fetchPublicHtml, SEGMENT_KEYS, SEGMENTS, type SegmentKey } from "./contacts";
+import { buildCollabBrief, matchCreators, scoreMatch } from "./collab";
+import { buildComparison } from "./comparison";
+import { checkSite, HEALTH_CADENCES, healthReport, listTrackedSites, trackSite, untrackSite } from "./health";
+import { parseMediaKit } from "./mediakit";
+import { createShare, hotShares, revokeShare, shareActivity, shareUrlFor } from "./sharing";
 import { buildDigestForWorkspace, sendDigest } from "./digest";
 import { findLocalHiring, findPartnerships } from "./discovery";
 import { MAX_JOB_AGE_DAYS, searchFreshJobs } from "./hiring";
@@ -23,7 +28,7 @@ import {
   type IntegrationKind,
 } from "./exporting";
 import { buildMockup } from "./mockup";
-import { buildProposal } from "./proposal";
+import { buildProposal, buildTiers } from "./proposal";
 import { allProviderStatuses } from "./providers";
 import { consume } from "./ratelimit";
 import {
@@ -66,7 +71,7 @@ import {
   removeMember,
   updateSeatLimit,
 } from "./workspace";
-import { mockups, proposals, type Prospect, type User } from "../drizzle/schema";
+import { collabBriefs, mediaKits, mockups, proposals, type Prospect, type User } from "../drizzle/schema";
 import { requireDb } from "./workspace";
 import { desc, eq, inArray, and } from "drizzle-orm";
 
@@ -773,6 +778,388 @@ export const appRouter = router({
           });
         }
         return built;
+      }),
+  }),
+
+  /* -------------------------------- proposal sharing, tracking, closing */
+
+  sharing: router({
+    /** Creates the public link and the pricing tiers that go on it. */
+    create: protectedProcedure
+      .input(
+        z
+          .object({
+            proposalId: z.number().int(),
+            bookingUrl: z.string().url().max(400).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const db = await requireDb();
+        const rows = await db
+          .select()
+          .from(proposals)
+          .where(and(eq(proposals.id, input.proposalId), eq(proposals.workspaceId, workspace.id)))
+          .limit(1);
+        if (rows.length === 0) throw badRequest("That proposal does not exist in this workspace.");
+
+        const stored = rows[0];
+        const deal =
+          stored.priceLow != null && stored.priceHigh != null
+            ? {
+                band: "standard" as const,
+                low: stored.priceLow,
+                high: stored.priceHigh,
+                currency: stored.currency ?? "USD",
+                basis: [],
+                caveat: "",
+              }
+            : undefined;
+        const scope = Array.isArray(stored.scope) ? (stored.scope as { title: string; detail: string; trigger: string }[]) : [];
+        const tiers = buildTiers(scope, deal);
+
+        const share = await createShare({
+          workspaceId: workspace.id,
+          proposalId: input.proposalId,
+          bookingUrl: input.bookingUrl,
+          tiers,
+        });
+        return { ...share, shareUrl: shareUrlFor(share.token), tiers };
+      }),
+
+    activity: protectedProcedure
+      .input(z.object({ proposalId: z.number().int() }).strict())
+      .query(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        return shareActivity(workspace.id, input.proposalId);
+      }),
+
+    /** Everything across the workspace that warrants a call today. */
+    hot: protectedProcedure.query(async ({ ctx }) => {
+      const workspace = await currentWorkspace(ctx.user);
+      return hotShares(workspace.id);
+    }),
+
+    revoke: protectedProcedure
+      .input(z.object({ shareId: z.number().int() }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        return revokeShare(workspace.id, input.shareId);
+      }),
+  }),
+
+  /* --------------------------------------------------- before / after */
+
+  comparison: router({
+    build: protectedProcedure
+      .input(
+        z
+          .object({
+            agencyName: z.string().trim().min(1).max(120),
+            businessName: z.string().trim().min(1).max(200),
+            websiteUrl: z.string().trim().max(400).optional(),
+            includeConcept: z.boolean().optional(),
+            category: z.string().trim().max(120).optional(),
+            city: z.string().trim().max(120).optional(),
+            phone: z.string().trim().max(60).optional(),
+            rating: z.number().min(0).max(5).optional(),
+            reviewCount: z.number().int().min(0).max(1_000_000).optional(),
+            bookingUrl: z.string().url().max(400).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ input }) => {
+        const audit = input.websiteUrl ? await auditWebsite(input.websiteUrl).catch(() => undefined) : undefined;
+        const concept =
+          input.includeConcept === false
+            ? undefined
+            : buildMockup({
+                name: input.businessName,
+                category: input.category,
+                city: input.city,
+                phone: input.phone,
+                rating: input.rating,
+                reviewCount: input.reviewCount,
+              }).html;
+
+        return buildComparison({
+          agencyName: input.agencyName,
+          businessName: input.businessName,
+          websiteUrl: input.websiteUrl,
+          audit,
+          conceptHtml: concept,
+          bookingUrl: input.bookingUrl,
+        });
+      }),
+  }),
+
+  /* ------------------------------------------------- client site health */
+
+  health: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const workspace = await currentWorkspace(ctx.user);
+      return listTrackedSites(workspace.id);
+    }),
+    track: protectedProcedure
+      .input(
+        z
+          .object({
+            label: z.string().trim().min(1).max(180),
+            url: z.string().trim().min(3).max(400),
+            prospectId: z.number().int().optional(),
+            cadence: z.enum(HEALTH_CADENCES).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        try {
+          return await trackSite({ workspaceId: workspace.id, ...input });
+        } catch (error) {
+          throw badRequest(error instanceof Error ? error.message : "That site could not be tracked.");
+        }
+      }),
+    untrack: protectedProcedure
+      .input(z.object({ id: z.number().int() }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        return untrackSite(workspace.id, input.id);
+      }),
+    report: protectedProcedure
+      .input(z.object({ id: z.number().int() }).strict())
+      .query(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        return healthReport(workspace.id, input.id);
+      }),
+    checkNow: protectedProcedure
+      .input(z.object({ id: z.number().int() }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const report = await healthReport(workspace.id, input.id);
+        const audit = await checkSite(report.site);
+        return { decayScore: audit.decayScore, verdict: audit.verdict };
+      }),
+  }),
+
+  /* ------------------------------------------ creator media kits + collabs */
+
+  creators: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const workspace = await currentWorkspace(ctx.user);
+      const db = await requireDb();
+      return db
+        .select()
+        .from(mediaKits)
+        .where(eq(mediaKits.workspaceId, workspace.id))
+        .orderBy(desc(mediaKits.createdAt))
+        .limit(200);
+    }),
+
+    /** Fetches a creator's own page and reads what they published about their audience. */
+    parseKit: protectedProcedure
+      .input(
+        z
+          .object({
+            website: z.string().trim().min(3).max(400),
+            creatorName: z.string().trim().max(180).optional(),
+            city: z.string().trim().max(120).optional(),
+            country: z.string().trim().max(80).optional(),
+            save: z.boolean().optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+
+        let page: Awaited<ReturnType<typeof fetchPublicHtml>>;
+        try {
+          page = await fetchPublicHtml(input.website);
+        } catch (error) {
+          throw badRequest(error instanceof Error ? error.message : "That address could not be read.");
+        }
+        if (!page) {
+          return {
+            reachable: false,
+            profile: null,
+            contact: null,
+            note: "That page could not be reached, so nothing could be read from it.",
+          };
+        }
+
+        const profile = parseMediaKit(page.html, input.creatorName);
+        const contact = await discoverContacts({
+          website: input.website,
+          name: input.creatorName,
+          country: input.country,
+          segment: "creator",
+        }).catch(() => null);
+        const contactEmail = contact?.emails[0]?.address ?? null;
+
+        if (input.save !== false) {
+          const db = await requireDb();
+          await db
+            .insert(mediaKits)
+            .values({
+              workspaceId: workspace.id,
+              creatorName: profile.creatorName || input.creatorName || page.finalUrl,
+              website: input.website,
+              niches: profile.niches,
+              audience: { followers: profile.followers, facts: profile.audience, totalReach: profile.totalReach },
+              rates: profile.rates,
+              partners: profile.partners,
+              contactEmail,
+              foundOn: page.finalUrl,
+            })
+            .onDuplicateKeyUpdate({
+              set: {
+                creatorName: profile.creatorName || input.creatorName || page.finalUrl,
+                niches: profile.niches,
+                audience: { followers: profile.followers, facts: profile.audience, totalReach: profile.totalReach },
+                rates: profile.rates,
+                partners: profile.partners,
+                contactEmail,
+                foundOn: page.finalUrl,
+              },
+            });
+        }
+
+        return { reachable: true, profile, contact, note: profile.summary };
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ id: z.number().int() }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const db = await requireDb();
+        await db.delete(mediaKits).where(and(eq(mediaKits.id, input.id), eq(mediaKits.workspaceId, workspace.id)));
+        return { success: true } as const;
+      }),
+
+    /** Ranks the workspace's own creator roster against one brand. */
+    match: protectedProcedure
+      .input(
+        z
+          .object({
+            brand: z
+              .object({
+                name: z.string().trim().min(1).max(180),
+                category: z.string().trim().min(1).max(120),
+                city: z.string().trim().max(120).optional(),
+                country: z.string().trim().max(80).optional(),
+                budget: z.number().min(0).max(10_000_000).optional(),
+                currency: z.string().trim().max(8).optional(),
+                goal: z.enum(["awareness", "launch", "sales", "content"]).optional(),
+                audienceNote: z.string().trim().max(400).optional(),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .query(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const db = await requireDb();
+        const rows = await db.select().from(mediaKits).where(eq(mediaKits.workspaceId, workspace.id)).limit(200);
+
+        const candidates = rows.map(row => {
+          const audience = (row.audience ?? {}) as {
+            followers?: { platform: string; followers: number; raw: string }[];
+            facts?: { kind: "gender" | "age" | "location" | "engagement"; value: string; raw: string }[];
+            totalReach?: number;
+          };
+          return {
+            id: row.id,
+            website: row.website,
+            contactEmail: row.contactEmail,
+            creatorName: row.creatorName,
+            followers: audience.followers ?? [],
+            totalReach: audience.totalReach ?? 0,
+            rates: (row.rates ?? []) as { deliverable: string; amount: number; currency: string; raw: string }[],
+            audience: audience.facts ?? [],
+            partners: row.partners ?? [],
+            niches: row.niches ?? [],
+            sparse: false,
+            summary: "",
+          };
+        });
+
+        return {
+          matches: matchCreators(input.brand, candidates),
+          rosterSize: candidates.length,
+          note:
+            candidates.length === 0
+              ? "Your creator roster is empty. Read a media kit first — matching runs against creators you have added."
+              : `Ranked ${candidates.length} creator(s) against ${input.brand.name}.`,
+        };
+      }),
+
+    brief: protectedProcedure
+      .input(
+        z
+          .object({
+            agencyName: z.string().trim().min(1).max(120),
+            creatorId: z.number().int(),
+            brand: z
+              .object({
+                name: z.string().trim().min(1).max(180),
+                category: z.string().trim().min(1).max(120),
+                city: z.string().trim().max(120).optional(),
+                country: z.string().trim().max(80).optional(),
+                budget: z.number().min(0).max(10_000_000).optional(),
+                currency: z.string().trim().max(8).optional(),
+                goal: z.enum(["awareness", "launch", "sales", "content"]).optional(),
+                audienceNote: z.string().trim().max(400).optional(),
+              })
+              .strict(),
+            save: z.boolean().optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const db = await requireDb();
+        const rows = await db
+          .select()
+          .from(mediaKits)
+          .where(and(eq(mediaKits.id, input.creatorId), eq(mediaKits.workspaceId, workspace.id)))
+          .limit(1);
+        if (rows.length === 0) throw badRequest("That creator is not in your roster.");
+
+        const row = rows[0];
+        const audience = (row.audience ?? {}) as {
+          followers?: { platform: string; followers: number; raw: string }[];
+          facts?: { kind: "gender" | "age" | "location" | "engagement"; value: string; raw: string }[];
+          totalReach?: number;
+        };
+        const candidate = {
+          id: row.id,
+          website: row.website,
+          contactEmail: row.contactEmail,
+          creatorName: row.creatorName,
+          followers: audience.followers ?? [],
+          totalReach: audience.totalReach ?? 0,
+          rates: (row.rates ?? []) as { deliverable: string; amount: number; currency: string; raw: string }[],
+          audience: audience.facts ?? [],
+          partners: row.partners ?? [],
+          niches: row.niches ?? [],
+          sparse: false,
+          summary: "",
+        };
+
+        const match = scoreMatch(input.brand, candidate);
+        const built = buildCollabBrief({ agencyName: input.agencyName, brand: input.brand, match });
+
+        if (input.save !== false) {
+          await db.insert(collabBriefs).values({
+            workspaceId: workspace.id,
+            brandName: input.brand.name,
+            creatorName: candidate.creatorName ?? "Creator",
+            structure: built.structure,
+            deliverables: built.deliverables,
+            html: built.html,
+          });
+        }
+        return { ...built, match };
       }),
   }),
 

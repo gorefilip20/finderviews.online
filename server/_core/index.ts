@@ -9,6 +9,12 @@ import { COOKIE_NAME, OAUTH_STATE_COOKIE, decodeOAuthState } from "@shared/const
 import { upsertUser } from "../db";
 import { appRouter } from "../routers";
 import { runDueDigests } from "../digest";
+import { runDueHealthChecks } from "../health";
+import { proposals } from "../../drizzle/schema";
+import { getDb } from "../db";
+import { eq } from "drizzle-orm";
+import { buildTiers, wrapForSharing } from "../proposal";
+import { acceptShare, getShareByToken, recordView, viewerKeyFor } from "../sharing";
 import { getSessionCookieOptions } from "./cookies";
 import { createContext } from "./context";
 import { ENV } from "./env";
@@ -122,6 +128,93 @@ export function registerApi(app: Express) {
     } catch (error) {
       console.error("[Digest] run failed:", error);
       return res.status(500).json({ error: "Digest run failed" });
+    }
+  });
+
+  /* ---------------------------------------------- public proposal sharing */
+
+  /**
+   * The recipient-facing proposal. Served from the app itself rather than sent as an attachment,
+   * which is what makes read-tracking and one-click acceptance possible at all.
+   */
+  app.get("/p/:token", async (req: Request, res: Response) => {
+    try {
+      const share = await getShareByToken(req.params.token);
+      const db = await getDb();
+      if (!db) return res.status(503).send("This link is temporarily unavailable.");
+
+      const rows = await db.select().from(proposals).where(eq(proposals.id, share.proposalId)).limit(1);
+      if (rows.length === 0 || !rows[0].html) return res.status(404).send("That proposal is no longer available.");
+
+      const stored = Array.isArray(share.tiers) ? (share.tiers as ReturnType<typeof buildTiers>) : null;
+      const html = wrapForSharing(rows[0].html, {
+        token: share.token,
+        endpointBase: "/api/p",
+        bookingUrl: share.bookingUrl,
+        tiers: stored,
+        status: share.status,
+        acceptedTier: share.acceptedTier,
+      });
+
+      // Never cached: the action bar reflects live acceptance state.
+      res.setHeader("Cache-Control", "no-store, max-age=0");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      return res.status(200).type("html").send(html);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "That link is not valid.";
+      return res.status(404).send(message);
+    }
+  });
+
+  /** Reading beacon. Deliberately unauthenticated — the recipient is not a Finder user. */
+  app.post("/api/p/view", async (req: Request, res: Response) => {
+    try {
+      const { token, totalMs, sectionMs, referrer } = req.body ?? {};
+      if (typeof token !== "string") return res.status(400).json({ error: "Missing token" });
+
+      await recordView({
+        token,
+        viewerKey: viewerKeyFor(req.ip, req.get("user-agent")),
+        totalMs: Number(totalMs) || 0,
+        sectionMs: sectionMs && typeof sectionMs === "object" ? sectionMs : {},
+        referrer: typeof referrer === "string" ? referrer : undefined,
+      });
+      return res.status(204).end();
+    } catch {
+      // A failed beacon must never surface to the reader as an error.
+      return res.status(204).end();
+    }
+  });
+
+  app.post("/api/p/accept", async (req: Request, res: Response) => {
+    try {
+      const { token, tier, name, email } = req.body ?? {};
+      if (typeof token !== "string") return res.status(400).json({ error: "Missing token" });
+
+      const result = await acceptShare({
+        token,
+        tier: typeof tier === "string" ? tier : undefined,
+        name: typeof name === "string" ? name : undefined,
+        email: typeof email === "string" ? email : undefined,
+      });
+      return res.json({ accepted: true, alreadyAccepted: result.alreadyAccepted });
+    } catch (error) {
+      console.error("[Proposal] accept failed:", error);
+      return res.status(400).json({ error: "That could not be recorded." });
+    }
+  });
+
+  app.post("/api/cron/health", async (req: Request, res: Response) => {
+    const provided = req.get("x-cron-secret");
+    if (!ENV.cronSecret || provided !== ENV.cronSecret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      return res.json(await runDueHealthChecks());
+    } catch (error) {
+      console.error("[Health] run failed:", error);
+      return res.status(500).json({ error: "Health run failed" });
     }
   });
 

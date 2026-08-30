@@ -78,3 +78,22 @@
 
 - [ ] Run one live contact lookup against a real website after deployment; the build environment's egress proxy blocks outbound HTTP, so only the parsing is verified so far.
 - [ ] Decide whether to add an official platform API adapter for creator business-contact fields, which needs a platform credential and app review.
+
+
+## Closing, Retention and Collaboration
+
+- [x] 1. Proposal read-tracking: public share links, per-section reading time, repeat-open detection, and a plain-language signal telling the user when to call.
+- [x] 2. Before / after side-by-side: measured findings beside the generated concept in one frame.
+- [x] 3. Accept button and booking link on the shared proposal, with three packaged tiers derived from the real scope.
+- [x] 4. Score-improvement tracking: baseline on first audit, re-audits on a cadence, inline sparkline and plain-language trend.
+- [x] 5. Media-kit parser: audience figures, rates, demographics, partners and niches from a creator's own published page.
+- [x] 6. Collaboration brief generator with a suggested deal structure and default deliverables.
+- [x] 7. Creator to brand matching, ranked relevance-first against the workspace's own roster.
+- [x] Privacy: viewer identity is a salted hash, never a stored IP address; the document discloses that it reports opens.
+- [x] Second scheduled hook for client re-audits, protected by the same shared secret.
+
+### Open items
+
+- [ ] Verify the full share loop against a live database: create a link, open it in another browser, confirm the reading times and the accept flow land.
+- [ ] The "today" side of the before/after renders measured findings rather than a screenshot. A rendering service would allow a real screenshot; decide whether that is worth the dependency.
+- [ ] Consider an official platform API adapter for creator audience figures, so a kit that publishes no numbers can still be compared.

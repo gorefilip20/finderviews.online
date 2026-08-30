@@ -179,7 +179,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
 </style></head>
 <body><div class="sheet">
 
-  <div class="pad">
+  <div class="pad" data-section="summary">
     <div class="label">${escapeHtml(input.agencyName)}${input.agencyTagline ? ` · ${escapeHtml(input.agencyTagline)}` : ""}</div>
     <h1>${escapeHtml(input.prospectName)}</h1>
     <p style="margin-top:10px;max-width:60ch;">Digital opportunity review${
@@ -194,7 +194,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
 
   ${
     input.score
-      ? `<div class="pad rule">
+      ? `<div class="pad rule" data-section="score">
           <div class="label">Opportunity score</div>
           <div class="scorebox"><div class="score">${input.score.score}</div><div style="padding-bottom:8px;font-size:13px;color:var(--muted);">/ 100 · ${escapeHtml(input.score.band)}</div></div>
           <div class="bar"><span style="width:${input.score.score}%"></span></div>
@@ -206,7 +206,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
 
   ${
     input.narrative?.opening || input.signalSummary
-      ? `<div class="pad rule"><h2>Why we are writing</h2><p style="max-width:66ch;">${escapeHtml(
+      ? `<div class="pad rule" data-section="summary"><h2>Why we are writing</h2><p style="max-width:66ch;">${escapeHtml(
           input.narrative?.opening || input.signalSummary || "",
         )}</p>${input.narrative?.whyNow ? `<p style="max-width:66ch;">${escapeHtml(input.narrative.whyNow)}</p>` : ""}</div>`
       : ""
@@ -214,7 +214,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
 
   ${
     checks.length
-      ? `<div class="pad rule page-break"><h2>What we checked</h2>
+      ? `<div class="pad rule page-break" data-section="findings"><h2>What we checked</h2>
           <p style="max-width:66ch;">Each line below is a live reading of the public website taken on ${new Date(
             input.audit?.fetchedAt || Date.now(),
           ).toLocaleDateString()}. Nothing here is an assumption.</p>
@@ -222,7 +222,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
       : ""
   }
 
-  <div class="pad rule"><h2>Recommended scope</h2>
+  <div class="pad rule" data-section="scope"><h2>Recommended scope</h2>
     <p style="max-width:66ch;">${
       input.narrative?.approach ||
       "Each item below exists because a specific check failed. Anything already working has been deliberately left out."
@@ -232,7 +232,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
 
   ${
     input.deal
-      ? `<div class="pad rule invest">
+      ? `<div class="pad rule invest" data-section="investment">
           <div class="label">Indicative investment</div>
           <div class="range">${money(input.deal.low, input.deal.currency)} – ${money(input.deal.high, input.deal.currency)}</div>
           <p style="color:#c9cfc4;max-width:64ch;margin-top:10px;">${escapeHtml(input.deal.caveat)}</p>
@@ -240,7 +240,7 @@ export function renderProposalHtml(input: ProposalInput, scope: ScopeItem[]): st
       : ""
   }
 
-  <div class="pad rule">
+  <div class="pad rule" data-section="next">
     <h2>Next step</h2>
     <p style="max-width:66ch;">A 20-minute call to confirm what matters most, then a fixed scope and timeline.</p>
     <p class="foot" style="margin-top:22px;">Prepared by ${escapeHtml(input.agencyName)} using publicly available information only. Finder does not collect private or personal contact data; all findings trace to the public website and public business listing for this company.</p>
@@ -256,4 +256,210 @@ export function buildProposal(input: ProposalInput) {
     html: renderProposalHtml(input, scope),
     title: `${input.prospectName} — digital opportunity review`,
   };
+}
+
+/* --------------------------------------------------- tiers, accept, tracking */
+
+export type PricingTier = {
+  key: "essential" | "recommended" | "complete";
+  name: string;
+  price: number;
+  currency: string;
+  includes: string[];
+  recommended: boolean;
+};
+
+/**
+ * Three named packages instead of one range.
+ *
+ * A range invites negotiation from its bottom edge; a middle option that is visibly the best
+ * value anchors the decision and is what most buyers take. Inclusions are drawn from the derived
+ * scope, so the tiers describe real work rather than invented deliverables.
+ */
+export function buildTiers(scope: ScopeItem[], deal: DealBand | undefined): PricingTier[] {
+  const currency = deal?.currency ?? "USD";
+  const mid = deal ? Math.round((deal.low + deal.high) / 2) : 4000;
+  const round = (value: number) => Math.max(250, Math.round(value / 50) * 50);
+
+  const titles = scope.map(item => item.title);
+  const core = titles.slice(0, Math.max(1, Math.ceil(titles.length / 2)));
+  const full = titles;
+
+  return [
+    {
+      key: "essential",
+      name: "Essential",
+      price: round(mid * 0.62),
+      currency,
+      includes: [...core, "One round of revisions"],
+      recommended: false,
+    },
+    {
+      key: "recommended",
+      name: "Recommended",
+      price: round(mid),
+      currency,
+      includes: [...full, "Two rounds of revisions", "Launch support"],
+      recommended: true,
+    },
+    {
+      key: "complete",
+      name: "Complete",
+      price: round(mid * 1.55),
+      currency,
+      includes: [...full, "Unlimited revisions during build", "Launch support", "Three months of maintenance and monitoring"],
+      recommended: false,
+    },
+  ];
+}
+
+const tierMoney = (value: number, currency: string) =>
+  `${currency === "USD" ? "$" : `${currency} `}${value.toLocaleString("en-US")}`;
+
+/**
+ * The reading beacon.
+ *
+ * Reports total dwell time and per-section reading time. It uses IntersectionObserver for
+ * section visibility, pauses on tab blur so a forgotten tab does not inflate the numbers, and
+ * flushes with sendBeacon on unload so the last reading is not lost. It records no identity: the
+ * server derives a salted viewer key and stores no raw address.
+ */
+export function trackingScript(token: string, endpoint: string): string {
+  return `<script>(function(){
+  var sections={},current=null,since=Date.now(),start=Date.now(),active=true,sent=0;
+  function tick(){
+    if(!active)return;
+    var now=Date.now();
+    if(current){sections[current]=(sections[current]||0)+(now-since);}
+    since=now;
+  }
+  function payload(){
+    tick();
+    return JSON.stringify({token:${JSON.stringify(token)},totalMs:Date.now()-start,sectionMs:sections,referrer:document.referrer||""});
+  }
+  function flush(useBeacon){
+    var body=payload();
+    if(useBeacon&&navigator.sendBeacon){navigator.sendBeacon(${JSON.stringify(endpoint)},new Blob([body],{type:"application/json"}));return;}
+    try{fetch(${JSON.stringify(endpoint)},{method:"POST",headers:{"Content-Type":"application/json"},body:body,keepalive:true});}catch(e){}
+  }
+  document.addEventListener("visibilitychange",function(){
+    if(document.hidden){tick();active=false;}else{active=true;since=Date.now();}
+  });
+  if("IntersectionObserver" in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){tick();current=entry.target.getAttribute("data-section");since=Date.now();}
+      });
+    },{threshold:0.4});
+    document.querySelectorAll("[data-section]").forEach(function(el){io.observe(el);});
+  }
+  // Periodic flush so a long read is captured even if the tab is never closed cleanly.
+  setInterval(function(){ if(Date.now()-start>5000&&sent<120){sent++;flush(false);} },15000);
+  window.addEventListener("pagehide",function(){flush(true);});
+  setTimeout(function(){flush(false);},4000);
+})();</script>`;
+}
+
+export type ShareBarInput = {
+  token: string;
+  endpointBase: string;
+  bookingUrl?: string | null;
+  tiers?: PricingTier[] | null;
+  status: string;
+  acceptedTier?: string | null;
+};
+
+/**
+ * The action bar appended to a shared proposal: pick a package, accept, or book a call. This is
+ * the whole point of sharing rather than attaching a PDF — the recipient has one thing to click
+ * instead of a decision to compose an email about.
+ */
+export function shareActionBar(input: ShareBarInput): string {
+  const accepted = input.status === "accepted";
+  const tiers = input.tiers ?? [];
+
+  const tierCards = tiers
+    .map(
+      tier => `<label class="tier${tier.recommended ? " tier--rec" : ""}">
+        <input type="radio" name="tier" value="${escapeHtml(tier.key)}"${tier.recommended ? " checked" : ""} />
+        <div>
+          <div class="tier-name">${escapeHtml(tier.name)}${tier.recommended ? ' <span class="tier-flag">Most chosen</span>' : ""}</div>
+          <div class="tier-price">${escapeHtml(tierMoney(tier.price, tier.currency))}</div>
+          <ul>${tier.includes.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      </label>`,
+    )
+    .join("");
+
+  return `
+  <div class="pad rule" data-section="next" id="finder-accept">
+    <style>
+      .tiers { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:16px 0 8px; }
+      .tier { display:flex; gap:10px; padding:16px; border:1px solid var(--stone); border-radius:10px; cursor:pointer;
+              background:#fff; align-items:flex-start; }
+      .tier--rec { border-color:var(--ink); box-shadow:0 0 0 2px var(--lime) inset; }
+      .tier input { margin-top:4px; }
+      .tier-name { font:700 14px/1.3 Manrope,sans-serif; }
+      .tier-flag { font:600 10px/1 'DM Mono',monospace; letter-spacing:.08em; text-transform:uppercase;
+                   background:var(--lime); padding:3px 6px; border-radius:99px; margin-left:4px; }
+      .tier-price { font-family:'Space Grotesk',sans-serif; font-size:24px; font-weight:700; margin:6px 0 8px; letter-spacing:-.02em; }
+      .tier ul { margin:0; padding-left:16px; font-size:12.5px; line-height:1.6; color:#4a5148; }
+      .accept-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px; }
+      .accept-row input[type=text], .accept-row input[type=email] {
+        padding:10px 12px; border:1px solid var(--stone); border-radius:8px; font:inherit; font-size:14px; min-width:180px; }
+      .btn-accept { background:var(--lime); color:var(--ink); border:1px solid var(--ink); padding:12px 20px;
+                    border-radius:8px; font:700 14px/1 Manrope,sans-serif; cursor:pointer; }
+      .btn-book { background:transparent; color:var(--ink); border:1px solid var(--ink); padding:12px 20px;
+                  border-radius:8px; font:700 14px/1 Manrope,sans-serif; text-decoration:none; display:inline-block; }
+      .accepted { background:#eefad2; border:1px solid #b7d97a; padding:16px; border-radius:10px;
+                  font:600 15px/1.5 Manrope,sans-serif; }
+      .privacy { font-size:11.5px; color:var(--muted); margin-top:14px; line-height:1.6; }
+      @media print { #finder-accept { display:none; } }
+    </style>
+
+    ${
+      accepted
+        ? `<div class="accepted">Accepted${input.acceptedTier ? ` — ${escapeHtml(input.acceptedTier)} package` : ""}. Thank you. We will be in touch to confirm the start date.</div>`
+        : `<h2>Ready to start?</h2>
+           <p style="max-width:60ch;">Choose the package that fits, and we will confirm scope and a start date. Nothing is charged by clicking this.</p>
+           <form id="finder-accept-form">
+             <div class="tiers">${tierCards}</div>
+             <div class="accept-row">
+               <input type="text" name="name" placeholder="Your name" required />
+               <input type="email" name="email" placeholder="Your email" required />
+               <button class="btn-accept" type="submit">Accept and start</button>
+               ${input.bookingUrl ? `<a class="btn-book" href="${escapeHtml(input.bookingUrl)}" target="_blank" rel="noreferrer">Book a call instead</a>` : ""}
+             </div>
+           </form>
+           <div id="finder-accept-done" style="display:none;" class="accepted">Thank you — accepted. We will confirm the start date by email.</div>`
+    }
+
+    <p class="privacy">This document reports when it is opened so we know when to follow up. It records no personal
+    information about you beyond what you choose to enter above.</p>
+  </div>
+
+  <script>(function(){
+    var form=document.getElementById("finder-accept-form");
+    if(!form)return;
+    form.addEventListener("submit",function(event){
+      event.preventDefault();
+      var data=new FormData(form);
+      var tier=form.querySelector('input[name="tier"]:checked');
+      fetch(${JSON.stringify(input.endpointBase)}+"/accept",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({token:${JSON.stringify(input.token)},tier:tier?tier.value:null,name:data.get("name"),email:data.get("email")})
+      }).then(function(){
+        form.style.display="none";
+        document.getElementById("finder-accept-done").style.display="block";
+      }).catch(function(){ alert("That did not send. Please reply to the email instead."); });
+    });
+  })();</script>`;
+}
+
+/** Injects the action bar and the reading beacon into a stored proposal document. */
+export function wrapForSharing(html: string, bar: ShareBarInput): string {
+  const injection = `${shareActionBar(bar)}\n${trackingScript(bar.token, `${bar.endpointBase}/view`)}`;
+  return html.includes("</body>")
+    ? html.replace("</body>", `${injection}\n</body>`)
+    : `${html}\n${injection}`;
 }

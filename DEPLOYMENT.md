@@ -75,13 +75,34 @@ GDPR/PECR, CASL, POPIA, NDPA, LGPD, PIPL, PDPA and others), with an unrecognised
 defaulting to the strictest posture. This is reference information, not legal advice, and the
 interface says so.
 
+## Proposal sharing and read-tracking
+
+A proposal is shared as a link (`/p/<token>`), not an attachment. That is what makes tracking and
+one-click acceptance possible. The page carries pricing tiers, an accept button, an optional
+booking link, and a beacon that reports reading time per section.
+
+Privacy: no raw IP address is stored. A viewer is identified by a salted hash of coarse request
+attributes — enough to distinguish a repeat read from a first read and nothing more. The document
+tells the reader it reports when it is opened.
+
+Automatic client re-audits run from a second scheduled hook:
+
+```bash
+curl -X POST https://finderviews.online/api/cron/health \
+  -H "x-cron-secret: $CRON_SECRET"
+```
+
 ## Routes
 
 - `/` - marketing site, live opportunity search and hiring signals
 - `/app` - the research desk (discovery, pipeline, watchlist, studio, settings)
 - `/api/trpc/*` - application API
 - `/api/oauth/callback` - sign-in callback
+- `/p/:token` - the public, recipient-facing proposal (no-index, never cached)
+- `/api/p/view` - proposal reading beacon (unauthenticated by design)
+- `/api/p/accept` - one-click acceptance
 - `/api/cron/digest` - scheduled digest hook
+- `/api/cron/health` - scheduled client re-audit hook
 
 Contact discovery and the site audit are rate limited per IP for anonymous callers and per
 account for signed-in users.

@@ -8,7 +8,10 @@
  */
 import FinderLogo from "@/components/FinderLogo";
 import Audit from "@/components/workspace/Audit";
+import Clients from "@/components/workspace/Clients";
 import Contacts from "@/components/workspace/Contacts";
+import Creators from "@/components/workspace/Creators";
+import Deals from "@/components/workspace/Deals";
 import Discover from "@/components/workspace/Discover";
 import Partnerships from "@/components/workspace/Partnerships";
 import Pipeline from "@/components/workspace/Pipeline";
@@ -19,10 +22,13 @@ import { Note, Panel, Spinner } from "@/components/workspace/shared";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import {
+  Activity,
   AtSign,
   Bell,
   FileText,
   Gauge,
+  HeartPulse,
+  Users,
   Handshake,
   KanbanSquare,
   LogOut,
@@ -32,7 +38,18 @@ import {
 import { useState } from "react";
 import { Link } from "wouter";
 
-type Section = "discover" | "audit" | "contacts" | "partnerships" | "pipeline" | "watchlist" | "studio" | "settings";
+type Section =
+  | "discover"
+  | "audit"
+  | "contacts"
+  | "partnerships"
+  | "creators"
+  | "pipeline"
+  | "deals"
+  | "clients"
+  | "watchlist"
+  | "studio"
+  | "settings";
 
 const NAV: { group: string; items: { key: Section; label: string; icon: typeof Search }[] }[] = [
   {
@@ -42,12 +59,15 @@ const NAV: { group: string; items: { key: Section; label: string; icon: typeof S
       { key: "audit", label: "Site audit", icon: Gauge },
       { key: "contacts", label: "Contacts", icon: AtSign },
       { key: "partnerships", label: "Partnerships", icon: Handshake },
+      { key: "creators", label: "Creators", icon: Users },
     ],
   },
   {
     group: "Work",
     items: [
       { key: "pipeline", label: "Pipeline", icon: KanbanSquare },
+      { key: "deals", label: "Deals", icon: Activity },
+      { key: "clients", label: "Clients", icon: HeartPulse },
       { key: "watchlist", label: "Watchlist", icon: Bell },
       { key: "studio", label: "Studio", icon: FileText },
     ],
@@ -171,6 +191,9 @@ export default function Workspace() {
           {section === "discover" && <Discover agencyName={agencyName} />}
           {section === "audit" && <Audit />}
           {section === "contacts" && <Contacts />}
+          {section === "creators" && <Creators agencyName={agencyName} />}
+          {section === "deals" && <Deals />}
+          {section === "clients" && <Clients />}
           {section === "partnerships" && <Partnerships />}
           {section === "pipeline" && <Pipeline />}
           {section === "watchlist" && <Watchlist />}

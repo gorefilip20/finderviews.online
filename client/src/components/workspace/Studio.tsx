@@ -6,7 +6,7 @@
  * every claim in it traces back to a check that ran.
  */
 import { trpc } from "@/lib/trpc";
-import { FileText, Layout, Sparkles } from "lucide-react";
+import { Columns2, FileText, Layout, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, Field, Note, Panel, Spinner, openHtmlInTab } from "./shared";
@@ -36,6 +36,17 @@ export default function Studio({ agencyName }: { agencyName: string }) {
       }
       toast.success("Proposal ready. Print to PDF from your browser to send it.");
       void utils.proposal.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const comparison = trpc.comparison.build.useMutation({
+    onSuccess: result => {
+      if (!openHtmlInTab(result.html, result.title)) {
+        toast.error("Your browser blocked the preview window. Allow pop-ups for this site.");
+        return;
+      }
+      toast.success("Before and after ready. Print to PDF to send it.");
     },
     onError: error => toast.error(error.message),
   });
@@ -80,7 +91,7 @@ export default function Studio({ agencyName }: { agencyName: string }) {
 
       <Panel
         title="Audit and proposal"
-        description="Finder audits the site live, then writes the scope from what actually failed. Passing checks are deliberately left out — an agency should not bill to fix something that works."
+        description="Finder audits the site live, then writes the scope from what actually failed. Passing checks are deliberately left out — an agency should not bill to fix something that works. Before / after puts their real findings beside a generated concept in one frame."
       >
         <div className="wk-grid wk-grid--2">
           <Field label="Your agency name">
@@ -113,6 +124,21 @@ export default function Studio({ agencyName }: { agencyName: string }) {
         </label>
 
         <div className="wk-actions">
+          <button
+            className="wk-btn wk-btn--ghost"
+            disabled={!agency.trim() || !name.trim() || comparison.isPending}
+            onClick={() =>
+              comparison.mutate({
+                agencyName: agency.trim(),
+                businessName: name.trim(),
+                websiteUrl: website.trim() || undefined,
+                category: category.trim() || undefined,
+                city: location.trim() || undefined,
+              })
+            }
+          >
+            {comparison.isPending ? <Spinner /> : <Columns2 size={15} />} Before / after
+          </button>
           <button
             className="wk-btn"
             disabled={!agency.trim() || !name.trim() || build.isPending}

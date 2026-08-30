@@ -408,3 +408,148 @@ export const prospectSnapshots = mysqlTable(
 );
 
 export type ProspectSnapshot = typeof prospectSnapshots.$inferSelect;
+
+/* ------------------------------------------- proposal sharing and tracking */
+
+/**
+ * A public, unguessable link to one proposal. Everything a recipient does with that link is
+ * recorded against this row, which is what turns a blind send into a timed follow-up.
+ */
+export const proposalShares = mysqlTable(
+  "proposal_shares",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspace_id").notNull(),
+    proposalId: int("proposal_id").notNull(),
+    token: varchar("token", { length: 64 }).notNull(),
+    /** sent | opened | accepted | declined | revoked */
+    status: varchar("status", { length: 24 }).default("sent").notNull(),
+    bookingUrl: varchar("booking_url", { length: 512 }),
+    tiers: json("tiers").$type<unknown>(),
+    acceptedTier: varchar("accepted_tier", { length: 48 }),
+    acceptedName: varchar("accepted_name", { length: 191 }),
+    acceptedEmail: varchar("accepted_email", { length: 191 }),
+    acceptedAt: timestamp("accepted_at"),
+    declinedReason: varchar("declined_reason", { length: 400 }),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).onUpdateNow().notNull(),
+  },
+  table => ({
+    tokenIdx: uniqueIndex("proposal_shares_token_idx").on(table.token),
+    workspaceIdx: index("proposal_shares_workspace_idx").on(table.workspaceId),
+    proposalIdx: index("proposal_shares_proposal_idx").on(table.proposalId),
+  }),
+);
+
+/**
+ * One reading session. `viewerKey` is a salted hash of coarse request attributes — never a raw
+ * IP address — so repeat visits can be counted without storing anything identifying.
+ */
+export const proposalViews = mysqlTable(
+  "proposal_views",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    shareId: int("share_id").notNull(),
+    viewerKey: varchar("viewer_key", { length: 64 }).notNull(),
+    totalMs: int("total_ms").default(0).notNull(),
+    /** Seconds spent per document section, keyed by section id. */
+    sectionMs: json("section_ms").$type<Record<string, number>>(),
+    reachedPricing: boolean("reached_pricing").default(false).notNull(),
+    referrer: varchar("referrer", { length: 400 }),
+    startedAt: timestamp("started_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    lastSeenAt: timestamp("last_seen_at").default(sql`CURRENT_TIMESTAMP`).onUpdateNow().notNull(),
+  },
+  table => ({
+    shareIdx: index("proposal_views_share_idx").on(table.shareId, table.startedAt),
+    viewerIdx: index("proposal_views_viewer_idx").on(table.shareId, table.viewerKey),
+  }),
+);
+
+export type ProposalShare = typeof proposalShares.$inferSelect;
+export type ProposalView = typeof proposalViews.$inferSelect;
+
+/* ------------------------------------------------- client health over time */
+
+/**
+ * A site the workspace has won and now monitors. Re-auditing on a cadence and showing the score
+ * climbing is the argument that converts a one-off build into a retainer.
+ */
+export const trackedSites = mysqlTable(
+  "tracked_sites",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspace_id").notNull(),
+    prospectId: int("prospect_id"),
+    label: varchar("label", { length: 191 }).notNull(),
+    url: varchar("url", { length: 512 }).notNull(),
+    cadence: varchar("cadence", { length: 24 }).default("monthly").notNull(),
+    active: boolean("active").default(true).notNull(),
+    baselineScore: int("baseline_score"),
+    lastScore: int("last_score"),
+    lastCheckedAt: timestamp("last_checked_at"),
+    createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  table => ({
+    workspaceIdx: index("tracked_sites_workspace_idx").on(table.workspaceId),
+    urlIdx: uniqueIndex("tracked_sites_url_idx").on(table.workspaceId, table.url),
+  }),
+);
+
+export const siteHealthPoints = mysqlTable(
+  "site_health_points",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    trackedSiteId: int("tracked_site_id").notNull(),
+    decayScore: int("decay_score").notNull(),
+    verdict: varchar("verdict", { length: 32 }),
+    failingChecks: int("failing_checks"),
+    checks: json("checks").$type<unknown>(),
+    recordedAt: timestamp("recorded_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  table => ({ siteIdx: index("site_health_points_site_idx").on(table.trackedSiteId, table.recordedAt) }),
+);
+
+export type TrackedSite = typeof trackedSites.$inferSelect;
+export type SiteHealthPoint = typeof siteHealthPoints.$inferSelect;
+
+/* ------------------------------------------------ creator collaborations */
+
+export const mediaKits = mysqlTable(
+  "media_kits",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspace_id").notNull(),
+    creatorName: varchar("creator_name", { length: 191 }).notNull(),
+    website: varchar("website", { length: 512 }).notNull(),
+    niches: json("niches").$type<string[]>(),
+    audience: json("audience").$type<unknown>(),
+    rates: json("rates").$type<unknown>(),
+    partners: json("partners").$type<string[]>(),
+    contactEmail: varchar("contact_email", { length: 191 }),
+    foundOn: varchar("found_on", { length: 512 }),
+    createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  table => ({
+    workspaceIdx: index("media_kits_workspace_idx").on(table.workspaceId),
+    siteIdx: uniqueIndex("media_kits_site_idx").on(table.workspaceId, table.website),
+  }),
+);
+
+export const collabBriefs = mysqlTable(
+  "collab_briefs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspace_id").notNull(),
+    brandName: varchar("brand_name", { length: 191 }).notNull(),
+    creatorName: varchar("creator_name", { length: 191 }).notNull(),
+    structure: varchar("structure", { length: 48 }),
+    deliverables: json("deliverables").$type<unknown>(),
+    html: text("html"),
+    createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  table => ({ workspaceIdx: index("collab_briefs_workspace_idx").on(table.workspaceId) }),
+);
+
+export type MediaKit = typeof mediaKits.$inferSelect;
+export type CollabBrief = typeof collabBriefs.$inferSelect;

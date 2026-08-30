@@ -140,6 +140,12 @@ export const SEGMENT_KEYS = Object.keys(SEGMENTS) as SegmentKey[];
 // are not mistaken for addresses.
 const EMAIL_PATTERN = /[a-z0-9!#$%&'*+/=?^_`{|}~.-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}/gi;
 
+/** Fetches one public page after the SSRF guard, for callers that need the raw HTML. */
+export async function fetchPublicHtml(rawUrl: string): Promise<{ html: string; finalUrl: string } | null> {
+  const url = await assertPublicUrl(rawUrl);
+  return fetchPage(url);
+}
+
 /** Handles the `name [at] domain [dot] com` obfuscation businesses use to dodge scrapers. */
 function deobfuscate(html: string): string {
   return html
@@ -266,7 +272,7 @@ export function formatPostalAddress(address: unknown): string | undefined {
 
 /* ------------------------------------------------------------------ fetching */
 
-async function fetchPage(url: URL): Promise<{ html: string; finalUrl: string } | null> {
+export async function fetchPage(url: URL): Promise<{ html: string; finalUrl: string } | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CONTACT_FETCH_TIMEOUT_MS);
   try {
