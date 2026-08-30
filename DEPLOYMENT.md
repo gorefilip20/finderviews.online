@@ -92,10 +92,27 @@ curl -X POST https://finderviews.online/api/cron/health \
   -H "x-cron-secret: $CRON_SECRET"
 ```
 
+## Borrowed attention
+
+`/borrow` finds the people, shows, newsletters, communities and events that already hold the
+audience a user wants, and reads their own site for the **open doors** they published: a booking
+link, a be-a-guest page, a sponsor rate card, a call for speakers, a community invitation.
+
+Booking links are detected by provider domain (Calendly, Cal.com, SavvyCal, TidyCal, HubSpot
+Meetings, Acuity, Zcal, Koalendar, YouCanBookMe, Microsoft Bookings and others), so a link is only
+reported when it genuinely resolves to a scheduler.
+
+Openness is weighted above audience size on purpose: a show with 3,000 listeners that answers is
+worth more than one with 300,000 that never will. A target with no published door and no contact
+address is reported as closed regardless of how large its audience is.
+
+Needs no credential — it reads pages directly and reuses the same SSRF guard as the site audit.
+
 ## Routes
 
 - `/` - marketing site, live opportunity search and hiring signals
 - `/app` - the research desk (discovery, pipeline, watchlist, studio, settings)
+- `/borrow` - borrowed attention: open doors and booking links
 - `/api/trpc/*` - application API
 - `/api/oauth/callback` - sign-in callback
 - `/p/:token` - the public, recipient-facing proposal (no-index, never cached)

@@ -553,3 +553,47 @@ export const collabBriefs = mysqlTable(
 
 export type MediaKit = typeof mediaKits.$inferSelect;
 export type CollabBrief = typeof collabBriefs.$inferSelect;
+
+/* --------------------------------------------------- borrowed attention */
+
+/**
+ * An entity that already holds the audience you want — a podcast, newsletter, community, event,
+ * founder or brand — together with the "open door" it published for being approached.
+ *
+ * The door is the point. A published booking link or a be-a-guest page is a standing invitation,
+ * which is a categorically warmer starting position than a cold contact address.
+ */
+export const attentionTargets = mysqlTable(
+  "attention_targets",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspace_id").notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    website: varchar("website", { length: 512 }).notNull(),
+    /** podcast | newsletter | community | event | creator | company | blog | unknown */
+    channelType: varchar("channel_type", { length: 32 }).notNull(),
+    topics: json("topics").$type<string[]>(),
+    audienceSignals: json("audience_signals").$type<unknown>(),
+    audienceEstimate: int("audience_estimate"),
+    /** Every open door found on the entity's own site. */
+    doors: json("doors").$type<unknown>(),
+    bookingUrl: varchar("booking_url", { length: 512 }),
+    bookingProvider: varchar("booking_provider", { length: 48 }),
+    contactEmail: varchar("contact_email", { length: 191 }),
+    borrowScore: int("borrow_score"),
+    scoreFactors: json("score_factors").$type<unknown>(),
+    suggestedApproach: varchar("suggested_approach", { length: 512 }),
+    status: varchar("status", { length: 24 }).default("found").notNull(),
+    notes: text("notes"),
+    country: varchar("country", { length: 128 }),
+    createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).onUpdateNow().notNull(),
+  },
+  table => ({
+    workspaceIdx: index("attention_targets_workspace_idx").on(table.workspaceId),
+    siteIdx: uniqueIndex("attention_targets_site_idx").on(table.workspaceId, table.website),
+    scoreIdx: index("attention_targets_score_idx").on(table.borrowScore),
+  }),
+);
+
+export type AttentionTarget = typeof attentionTargets.$inferSelect;

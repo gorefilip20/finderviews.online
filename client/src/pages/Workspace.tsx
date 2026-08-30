@@ -8,6 +8,7 @@
  */
 import FinderLogo from "@/components/FinderLogo";
 import Audit from "@/components/workspace/Audit";
+import Borrow from "@/components/workspace/Borrow";
 import Clients from "@/components/workspace/Clients";
 import Contacts from "@/components/workspace/Contacts";
 import Creators from "@/components/workspace/Creators";
@@ -25,6 +26,7 @@ import {
   Activity,
   AtSign,
   Bell,
+  DoorOpen,
   FileText,
   Gauge,
   HeartPulse,
@@ -38,7 +40,8 @@ import {
 import { useState } from "react";
 import { Link } from "wouter";
 
-type Section =
+export type Section =
+  | "borrow"
   | "discover"
   | "audit"
   | "contacts"
@@ -55,6 +58,7 @@ const NAV: { group: string; items: { key: Section; label: string; icon: typeof S
   {
     group: "Find",
     items: [
+      { key: "borrow", label: "Borrow", icon: DoorOpen },
       { key: "discover", label: "Discover", icon: Search },
       { key: "audit", label: "Site audit", icon: Gauge },
       { key: "contacts", label: "Contacts", icon: AtSign },
@@ -78,8 +82,14 @@ const NAV: { group: string; items: { key: Section; label: string; icon: typeof S
   },
 ];
 
-export default function Workspace() {
-  const [section, setSection] = useState<Section>("discover");
+/**
+ * `params` is declared so the props type shares a member with wouter's RouteComponentProps.
+ * Without it TypeScript's weak-type check rejects a props object of only optional fields.
+ */
+type WorkspaceProps = { initialSection?: Section; params?: unknown };
+
+export default function Workspace({ initialSection }: WorkspaceProps) {
+  const [section, setSection] = useState<Section>(initialSection ?? "discover");
   const { user, isLoading, login, logout } = useAuth();
   const capabilities = trpc.system.capabilities.useQuery();
   const alerts = trpc.savedSearches.alerts.useQuery({ unreadOnly: true, limit: 50 }, { enabled: Boolean(user), retry: false });
@@ -188,6 +198,7 @@ export default function Workspace() {
             </div>
           )}
 
+          {section === "borrow" && <Borrow />}
           {section === "discover" && <Discover agencyName={agencyName} />}
           {section === "audit" && <Audit />}
           {section === "contacts" && <Contacts />}

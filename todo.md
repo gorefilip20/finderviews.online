@@ -97,3 +97,23 @@
 - [ ] Verify the full share loop against a live database: create a link, open it in another browser, confirm the reading times and the accept flow land.
 - [ ] The "today" side of the before/after renders measured findings rather than a screenshot. A rendering service would allow a real screenshot; decide whether that is worth the dependency.
 - [ ] Consider an official platform API adapter for creator audience figures, so a kit that publishes no numbers can still be compared.
+
+
+## Borrowed Attention
+
+- [x] New `/borrow` page for finding audiences that already exist rather than building one.
+- [x] Open-door detection: booking link, be-a-guest, sponsor, call for speakers, write-for-us, collaborate, community, submit.
+- [x] Booking-link detection by provider domain across fifteen scheduling tools, including embedded widget destinations.
+- [x] Slot selection prefers the shortest introductory booking over a long sales call.
+- [x] Channel classification: podcast, newsletter, community, event, creator, company, blog.
+- [x] Audience signals read only where the entity states them; an unstated figure is excluded from confidence rather than assumed.
+- [x] Borrow score weighting openness above audience size, with a hard gate closing anything that published no route in.
+- [x] Per-door rationale and a concrete approach for each, so the result is actionable rather than a list.
+- [x] Shortlist mode ranking up to eight candidates at once.
+- [x] Saved list with a status pipeline: found, approached, booked, published, declined.
+- [x] Hunting-grounds guidance for building the candidate list in the first place.
+
+### Open items
+
+- [ ] Discovery by topic still needs a source: a podcast or newsletter directory adapter would turn this from "analyse a URL I found" into "find me twenty". Currently the page analyses URLs the user supplies.
+- [ ] Verify against live sites once deployed; the build environment's egress proxy blocks outbound HTTP, so only the parsing is verified.

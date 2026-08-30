@@ -9,6 +9,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { COMPLIANCE_DISCLAIMER, complianceFor } from "@shared/compliance";
 import { discoverContacts, fetchPublicHtml, SEGMENT_KEYS, SEGMENTS, type SegmentKey } from "./contacts";
+import { analyseAttentionPage, HUNTING_GROUNDS, pickBestBooking } from "./attention";
 import { buildCollabBrief, matchCreators, scoreMatch } from "./collab";
 import { buildComparison } from "./comparison";
 import { checkSite, HEALTH_CADENCES, healthReport, listTrackedSites, trackSite, untrackSite } from "./health";
@@ -71,7 +72,7 @@ import {
   removeMember,
   updateSeatLimit,
 } from "./workspace";
-import { collabBriefs, mediaKits, mockups, proposals, type Prospect, type User } from "../drizzle/schema";
+import { attentionTargets, collabBriefs, mediaKits, mockups, proposals, type Prospect, type User } from "../drizzle/schema";
 import { requireDb } from "./workspace";
 import { desc, eq, inArray, and } from "drizzle-orm";
 
@@ -1160,6 +1161,174 @@ export const appRouter = router({
           });
         }
         return { ...built, match };
+      }),
+  }),
+
+  /* ------------------------------------------------- borrowed attention */
+
+  attention: router({
+    /** Plain guidance on where to look when the user has no list yet. */
+    grounds: publicProcedure.query(() => HUNTING_GROUNDS),
+
+    /**
+     * Reads one page and reports the open doors on it. Rate limited because it fetches on the
+     * caller's behalf.
+     */
+    analyse: protectedProcedure
+      .input(
+        z
+          .object({
+            url: z.string().trim().min(3).max(400),
+            myTopics: z.array(z.string().max(60)).max(12).optional(),
+            country: z.string().trim().max(80).optional(),
+            save: z.boolean().optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const limit = consume(`attention:user:${ctx.user.id}`, 120, 60 * 60 * 1000);
+        if (!limit.ok) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `Too many lookups. Try again in ${Math.ceil(limit.retryAfterMs / 60000)} minute(s).`,
+          });
+        }
+
+        let page: Awaited<ReturnType<typeof fetchPublicHtml>>;
+        try {
+          page = await fetchPublicHtml(input.url);
+        } catch (error) {
+          throw badRequest(error instanceof Error ? error.message : "That address could not be read.");
+        }
+        if (!page) {
+          return {
+            reachable: false as const,
+            analysis: null,
+            contact: null,
+            note: "That page could not be reached, so nothing could be read from it.",
+          };
+        }
+
+        const contact = await discoverContacts({
+          website: input.url,
+          country: input.country,
+          segment: "business",
+        }).catch(() => null);
+
+        const analysis = analyseAttentionPage({
+          html: page.html,
+          url: input.url,
+          finalUrl: page.finalUrl,
+          myTopics: input.myTopics,
+          hasContact: Boolean(contact?.emails.length),
+        });
+
+        if (input.save !== false) {
+          const db = await requireDb();
+          const booking = analysis.bookingLinks.length > 0 ? pickBestBooking(analysis.bookingLinks) : null;
+          const values = {
+            workspaceId: workspace.id,
+            name: analysis.name || page.finalUrl,
+            website: input.url,
+            channelType: analysis.channel.type,
+            topics: analysis.topics,
+            audienceSignals: analysis.audience,
+            audienceEstimate: analysis.audience.estimate,
+            doors: analysis.doors,
+            bookingUrl: booking?.url ?? null,
+            bookingProvider: booking?.provider ?? null,
+            contactEmail: contact?.emails[0]?.address ?? null,
+            borrowScore: analysis.score.score,
+            scoreFactors: analysis.score.factors,
+            suggestedApproach: analysis.nextStep.slice(0, 500),
+            country: input.country ?? null,
+          };
+          await db.insert(attentionTargets).values(values).onDuplicateKeyUpdate({ set: values });
+        }
+
+        return { reachable: true as const, analysis, contact, note: analysis.summary };
+      }),
+
+    /** Analyses several candidates and ranks them, which is how a shortlist is actually built. */
+    shortlist: protectedProcedure
+      .input(
+        z
+          .object({
+            urls: z.array(z.string().trim().min(3).max(400)).min(1).max(8),
+            myTopics: z.array(z.string().max(60)).max(12).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        await currentWorkspace(ctx.user);
+        const limit = consume(`attention:user:${ctx.user.id}`, 120, 60 * 60 * 1000);
+        if (!limit.ok) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many lookups. Try again shortly." });
+        }
+
+        const results = await Promise.all(
+          input.urls.map(async url => {
+            try {
+              const page = await fetchPublicHtml(url);
+              if (!page) return { url, reachable: false as const, analysis: null, error: "Could not be reached." };
+              return {
+                url,
+                reachable: true as const,
+                analysis: analyseAttentionPage({ html: page.html, url, finalUrl: page.finalUrl, myTopics: input.myTopics }),
+                error: null,
+              };
+            } catch (error) {
+              return { url, reachable: false as const, analysis: null, error: error instanceof Error ? error.message : "Failed." };
+            }
+          }),
+        );
+
+        return results.sort((a, b) => (b.analysis?.score.score ?? -1) - (a.analysis?.score.score ?? -1));
+      }),
+
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const workspace = await currentWorkspace(ctx.user);
+      const db = await requireDb();
+      return db
+        .select()
+        .from(attentionTargets)
+        .where(eq(attentionTargets.workspaceId, workspace.id))
+        .orderBy(desc(attentionTargets.borrowScore))
+        .limit(200);
+    }),
+
+    setStatus: protectedProcedure
+      .input(
+        z
+          .object({
+            id: z.number().int(),
+            status: z.enum(["found", "approached", "booked", "published", "declined"]),
+            notes: z.string().max(2000).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const db = await requireDb();
+        const changes: Record<string, unknown> = { status: input.status };
+        if (input.notes !== undefined) changes.notes = input.notes;
+        await db
+          .update(attentionTargets)
+          .set(changes)
+          .where(and(eq(attentionTargets.id, input.id), eq(attentionTargets.workspaceId, workspace.id)));
+        return { success: true } as const;
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ id: z.number().int() }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const workspace = await currentWorkspace(ctx.user);
+        const db = await requireDb();
+        await db
+          .delete(attentionTargets)
+          .where(and(eq(attentionTargets.id, input.id), eq(attentionTargets.workspaceId, workspace.id)));
+        return { success: true } as const;
       }),
   }),
 
