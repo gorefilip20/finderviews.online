@@ -41,8 +41,13 @@ export const appRouter = router({
   hiring: router({
     search: publicProcedure.input(jobSearchInput).query(({ input }) => searchFreshJobs(input)),
     brief: protectedProcedure.input(briefingInput).mutation(async ({ input }) => {
-      const { data: models } = await listLLMModels();
-      const model = models.find((item) => item.id === "gpt-5-mini")?.id || models[0]?.id;
+      let model = "gpt-4o-mini";
+      try {
+        const { data: models } = await listLLMModels();
+        model = models.find((item) => item.id === "gpt-4o-mini")?.id || models.find((item) => item.id === "gpt-5-mini")?.id || models[0]?.id || "gpt-4o-mini";
+      } catch {
+        // fall back to default model if listing fails
+      }
       const response = await invokeLLM({
         model,
         messages: [
