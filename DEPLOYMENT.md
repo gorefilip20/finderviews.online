@@ -12,11 +12,11 @@ pnpm build
 pnpm start
 ```
 
-The application should listen on the port supplied by Hostinger through `PORT`. The build creates the frontend under `dist/public` and copies the verified backend runtime to `dist/index.js`.
+The application should listen on the port supplied by Hostinger through `PORT`. The build copies the prebuilt frontend assets from `deploy/public` to `dist/public` and copies the production backend runtime to `dist/index.js`; Hostinger does not need to run Vite or esbuild.
 
 ## Important archive audit
 
-The supplied ZIP contains the client pages, server business logic, and a prebuilt backend bundle, but it does not contain several source support modules referenced by the TypeScript project, including `server/_core/*`, `client/src/_core/hooks/useAuth`, and `drizzle/schema.ts`. The repository now restores the missing client authentication hook and preserves the supplied backend bundle as `server/prebuilt-index.js`, allowing the production build to complete without rebuilding the absent server source modules.
+The supplied ZIP contains the client pages, server business logic, and a prebuilt backend bundle, but it does not contain several source support modules referenced by the TypeScript project, including `server/_core/*`, `client/src/_core/hooks/useAuth`, and `drizzle/schema.ts`. The repository now restores the missing client authentication hook and preserves the supplied backend bundle as `server/prebuilt-index.js`. The final deployment artifact is intentionally runtime-only, allowing Hostinger to install dependencies without invoking the native esbuild postinstall scripts.
 
 The repository has been renamed and branded for Finderviews, including the browser title, description, visible logo label, accessibility labels, and user-facing page copy. No database credentials, OAuth secrets, or `.env` files should be committed; configure those privately in Hostinger environment variables.
 
