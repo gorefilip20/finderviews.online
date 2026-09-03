@@ -460,7 +460,7 @@ export default function Home() {
               <div className="hero-proof">
                 <div><strong>Phone</strong><span>public business detail</span></div>
                 <div><strong>Presence signal</strong><span>site + public-detail check</span></div>
-                <div><strong>Hiring signal</strong><span>roles posted in 5 days</span></div>
+                <div><strong>Hiring signal</strong><span>roles posted in 30 days</span></div>
               </div>
             </div>
 
@@ -627,11 +627,11 @@ export default function Home() {
               <span className="section-number">03 / FRESH HIRING SIGNALS</span>
               <h2>Find the companies<br />that are building <em>right now.</em></h2>
             </div>
-            <p>Search current public remote-job listings by role and eligible market. Finderviews keeps only records whose original publication date is within <strong>five days</strong>, then frames the company need for a useful first conversation.</p>
+            <p>Search current public remote-job listings by role and eligible market. Finderviews keeps only records published within <strong>30 days</strong>, then frames the company need for a useful first conversation.</p>
           </div>
 
           <div className="hiring-search-card">
-            <div className="hiring-search-card__top"><span><FileClock size={15} /> STRICT FRESHNESS WINDOW</span><span className="freshness-badge">≤ 5 days old</span></div>
+            <div className="hiring-search-card__top"><span><FileClock size={15} /> FRESHNESS WINDOW</span><span className="freshness-badge">≤ 30 days old</span></div>
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
               <label><span>ELIGIBLE REGION</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRegion} onChange={(event) => { const nextRegion = event.target.value as MarketRegion; setJobRegion(nextRegion); setJobCountry(MARKET_COVERAGE[nextRegion][0]); }}>{SUPPORTED_REGIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
@@ -639,16 +639,16 @@ export default function Home() {
               <button className="hiring-search-button" onClick={runHiringSearch} disabled={hiringSearch.isFetching}>{hiringSearch.isFetching ? <><LoaderCircle className="spin" size={17} /> Sourcing roles</> : <><Search size={17} /> Search fresh roles</>}</button>
             </div>
             <div className="role-suggestions"><span>EXPLORE:</span>{hiringRoleSuggestions.map((role) => <button key={role} onClick={() => setJobRole(role)} className={cn(jobRole.toLowerCase() === role.toLowerCase() && "role-suggestion--active")}>{role}</button>)}</div>
-            <p className="hiring-source-note"><CircleHelp size={14} /> Live source: Jobicy. The original job date is filtered at five days or less. Finderviews applies a direct country filter where Jobicy supports one, otherwise its documented regional filter; every result shows its source geography.</p>
+            <p className="hiring-source-note"><CircleHelp size={14} /> Live source: Jobicy. Results are filtered to the last 30 days. Finderviews applies a direct country filter where Jobicy supports one, otherwise its documented regional filter; every result shows its source geography.</p>
           </div>
 
           <div className="hiring-body">
             <div className="job-results-panel">
               <div className="job-results-panel__top"><div><span>LIVE_HIRING_SIGNAL_FEED</span><small>{hiringSearch.data ? `${jobs.length} fresh roles from ${hiringSearch.data.sourceName}` : "Choose a role, country, and run a fresh search."}</small></div><span className={cn("source-status", jobSearchRequested && !hiringSearch.isError && "source-status--active")}><i /> {hiringSearch.isFetching ? "checking" : hiringSearch.data ? "fresh source" : "ready"}</span></div>
               {!jobSearchRequested && <div className="job-empty-state"><UsersRound size={31} /><strong>Start with a role the company needs.</strong><span>Try product management, social media growth, web development, content, co-founder, life sciences, or operations leadership.</span></div>}
-              {jobSearchRequested && hiringSearch.isFetching && <div className="job-empty-state"><LoaderCircle className="spin" size={30} /><strong>Checking today’s hiring signals.</strong><span>Finderviews will exclude positions older than five days before showing results.</span></div>}
+              {jobSearchRequested && hiringSearch.isFetching && <div className="job-empty-state"><LoaderCircle className="spin" size={30} /><strong>Checking hiring signals.</strong><span>Finderviews is searching for matching roles published within the last 30 days.</span></div>}
               {jobSearchRequested && hiringSearch.isError && <div className="job-empty-state"><CircleHelp size={30} /><strong>The live job source is unavailable right now.</strong><span>The data-ready workspace is still available. Please try the same role again in a moment.</span></div>}
-              {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No fresh role matched this exact search.</strong><span>Try a broader role title, another eligible country, or return soon as the public feed updates.</span></div>}
+              {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No roles matched this search right now.</strong><span>Try a broader role title (like "developer" instead of "web developer"), change the region, or check back as new jobs get posted.</span></div>}
               {jobs.length > 0 && <div className="job-list">{jobs.map((job) => <button className={cn("job-row", selectedJob?.id === job.id && "job-row--selected")} key={job.id} onClick={() => setSelectedJobId(job.id)}><div className="job-row__company">{job.companyLogo ? <img src={job.companyLogo} alt="" /> : <span className="company-fallback"><Building2 size={15} /></span>}<span><strong>{job.company}</strong><small>{job.geography} · {job.industry.join(", ") || "Hiring company"}</small></span></div><div className="job-row__role"><strong>{job.title}</strong><span>{job.jobType.join(" · ") || "Employment type not specified"}</span></div><div className="job-row__date"><CalendarDays size={14} /><span>{job.ageHours < 24 ? `${job.ageHours}h ago` : `${Math.floor(job.ageHours / 24)}d ago`}</span></div><ArrowUpRight size={16} /></button>)}</div>}
               {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {hiringSearch.data.freshnessDays}-day maximum.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
             </div>

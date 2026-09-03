@@ -883,7 +883,7 @@ var systemRouter = router({
 // server/hiring.ts
 var JOBICY_SOURCE_NAME = "Jobicy";
 var JOBICY_SOURCE_URL = "https://jobicy.com/jobs-rss-feed";
-var MAX_JOB_AGE_DAYS = 5;
+var MAX_JOB_AGE_DAYS = 30;
 var MAX_JOB_AGE_MS = MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1e3;
 var ROLE_ALIASES = {
   "product manager": ["product manager", "product management"],
@@ -967,18 +967,35 @@ function matchesRequestedRole(job, requestedRole) {
   return aliases.some((alias) => searchable.includes(alias));
 }
 async function searchFreshJobs(input) {
-  const params = new URLSearchParams({ count: String(Math.min(Math.max(input.limit || 24, 1), 60)) });
+  const params = new URLSearchParams({ count: String(Math.min(Math.max(input.limit || 50, 1), 60)) });
   const role = input.role.trim();
   if (role && role !== "All hiring roles") params.set("tag", role);
   const geoScope = getJobicyGeoScope(input);
   params.set("geo", geoScope.geo);
-  const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
-    headers: { Accept: "application/json" }
-  });
-  if (!response.ok) throw new Error(`Job source returned ${response.status}`);
-  const payload = await response.json();
+  let jobs = [];
+  try {
+    const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
+      headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }
+    });
+    if (response.ok) {
+      const payload = await response.json();
+      jobs = mapFreshJobs(payload.jobs || []).filter((job) => matchesRequestedRole(job, input.role));
+    }
+    if (!response.ok && jobs.length === 0) {
+      const broadParams = new URLSearchParams({ count: "50", geo: geoScope.geo });
+      try {
+        const broadResponse = await fetch(`https://jobicy.com/api/v2/remote-jobs?${broadParams.toString()}`, {
+          headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }
+        });
+        if (broadResponse.ok) {
+          const broadPayload = await broadResponse.json();
+          jobs = mapFreshJobs(broadPayload.jobs || []).filter((job) => matchesRequestedRole(job, input.role));
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
   return {
-    jobs: mapFreshJobs(payload.jobs || []).filter((job) => matchesRequestedRole(job, input.role)),
+    jobs,
     sourceName: JOBICY_SOURCE_NAME,
     sourceUrl: JOBICY_SOURCE_URL,
     freshnessDays: MAX_JOB_AGE_DAYS,
