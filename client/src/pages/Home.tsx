@@ -37,6 +37,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -199,8 +200,8 @@ export default function Home() {
   const [publicCompanyContact, setPublicCompanyContact] = useState<PublicCompanyContact | null>(null);
   const [isLookingUpCompanyContact, setIsLookingUpCompanyContact] = useState(false);
   const [companyContactLookupComplete, setCompanyContactLookupComplete] = useState(false);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<unknown[]>([]);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
 
   const jobSearchInput = useMemo(() => ({ role: jobRole || "All hiring roles", country: jobCountry, region: jobRegion }), [jobCountry, jobRegion, jobRole]);
   const hiringSearch = trpc.hiring.search.useQuery(jobSearchInput, { enabled: jobSearchRequested, retry: false, refetchOnWindowFocus: false });
@@ -237,26 +238,23 @@ export default function Home() {
 
   const addMapPins = (items: Lead[]) => {
     const map = mapRef.current;
-    const maps = window.google?.maps as unknown as { marker?: { AdvancedMarkerElement?: new (config: unknown) => unknown } } | undefined;
-    if (!map || !maps?.marker?.AdvancedMarkerElement) return;
+    if (!map) return;
 
+    markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
     const positioned = items.filter((item) => item.position);
     positioned.forEach((item) => {
-      try {
-        const marker = new maps.marker!.AdvancedMarkerElement!({
-          map,
-          position: item.position,
-          title: item.name,
-        });
-        markersRef.current.push(marker);
-      } catch {
-        // The data table remains available even when browser map markers are unavailable.
-      }
+      if (!item.position) return;
+      const marker = L.marker([item.position.lat, item.position.lng])
+        .addTo(map)
+        .bindPopup(item.name);
+      markersRef.current.push(marker);
     });
     if (positioned[0]?.position) {
-      map.setCenter(positioned[0].position);
-      map.setZoom(positioned.length === 1 ? 14 : 12);
+      map.setView(
+        [positioned[0].position.lat, positioned[0].position.lng],
+        positioned.length === 1 ? 14 : 12,
+      );
     }
   };
 
@@ -269,52 +267,86 @@ export default function Home() {
     }
     setIsSearching(true);
     setSearched(true);
-    const textQuery = `${category === "All local businesses" ? "local businesses" : category} in ${marketLabel}`;
     try {
-      const placesApi = (window.google?.maps as unknown as { places?: { Place?: { searchByText?: (request: unknown) => Promise<{ places?: unknown[] }> } } })?.places;
-      if (!placesApi?.Place?.searchByText) {
-        throw new Error("The map service is still loading");
+      const geoQuery = location.trim() ? `${location.trim()}, ${country}` : country;
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?` +
+        new URLSearchParams({ q: geoQuery, format: "json", limit: "1" }),
+        { headers: { "Accept": "application/json" } },
+      );
+      const geoData = (await geoRes.json()) as Array<{ lat: string; lng?: string; lon?: string; boundingbox?: string[] }>;
+      if (!geoData.length) {
+        toast.error("Could not locate that area. Try a different city or country name.");
+        setIsSearching(false);
+        return;
       }
-      const response = await placesApi.Place.searchByText({
-        textQuery,
-        fields: ["displayName", "formattedAddress", "location", "nationalPhoneNumber", "internationalPhoneNumber", "websiteURI", "types", "googleMapsURI"],
-        maxResultCount: 20,
+      const center = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon || geoData[0].lng || "0") };
+      const bbox = geoData[0].boundingbox;
+      const radius = bbox
+        ? Math.min(15000, Math.max(2000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000))
+        : 5000;
+
+      const osmCategory = category === "All local businesses" ? ""
+        : category === "Restaurant" ? '["amenity"~"restaurant|cafe|fast_food|bar"]'
+        : category === "Home services" ? '["shop"~"hardware|furniture|doityourself"]["craft"]'
+        : category === "Beauty & wellness" ? '["shop"~"beauty|hairdresser|massage"]["amenity"~"beauty|spa"]'
+        : category === "Retail" ? '["shop"]'
+        : category === "Auto services" ? '["shop"~"car_repair|car"]["amenity"~"car_wash|fuel"]'
+        : category === "Professional services" ? '["office"]'
+        : "";
+
+      const overpassQuery = `
+        [out:json][timeout:15];
+        (
+          node${osmCategory || '["name"]["shop"]'}(around:${radius},${center.lat},${center.lng});
+          node${osmCategory || '["name"]["amenity"]'}(around:${radius},${center.lat},${center.lng});
+        );
+        out body 30;
+      `;
+      const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        body: `data=${encodeURIComponent(overpassQuery)}`,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
-      const nextLeads = (response.places || []).reduce<Lead[]>((results, place) => {
-          const item = place as {
-            id?: string;
-            displayName?: string | { text?: string };
-            formattedAddress?: string;
-            location?: { lat?: () => number; lng?: () => number };
-            nationalPhoneNumber?: string;
-            internationalPhoneNumber?: string;
-            websiteURI?: string;
-            types?: string[];
-            googleMapsURI?: string;
-          };
-          const itemLocation = item.location;
-          const rawName = typeof item.displayName === "string" ? item.displayName : item.displayName?.text;
-          const hasNoWebsite = !item.websiteURI;
-          const hasLimitedPublicPresence = !item.websiteURI || !item.nationalPhoneNumber;
-          const qualifies = presenceMode === "No listed website" ? hasNoWebsite : presenceMode === "Limited public presence" ? hasLimitedPublicPresence : hasNoWebsite || hasLimitedPublicPresence;
-          if (!qualifies) return results;
-          results.push({
-            id: item.id || `live-${rawName || Math.random()}`,
-            name: rawName || "Unnamed business",
-            category: item.types?.[0]?.replaceAll("_", " ") || category,
-            location: item.formattedAddress || marketLabel,
-            phone: item.nationalPhoneNumber || item.internationalPhoneNumber || "No public phone listed",
-            address: item.formattedAddress,
-            verified: true,
-            hasWebsite: !hasNoWebsite,
-            score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
-            growthPath: "Review presence and propose next step",
-            position: itemLocation?.lat && itemLocation?.lng ? { lat: itemLocation.lat(), lng: itemLocation.lng() } : undefined,
-            source: item.googleMapsURI || "Public listing source",
-            presence: hasNoWebsite ? "No website listed" : "Limited public presence",
-          });
-          return results;
-        }, []).slice(0, 12);
+      const overpassData = (await overpassRes.json()) as {
+        elements: Array<{
+          id: number;
+          lat: number;
+          lon: number;
+          tags?: Record<string, string>;
+        }>;
+      };
+
+      const nextLeads = overpassData.elements.reduce<Lead[]>((results, el) => {
+        if (!el.tags?.name) return results;
+        const tags = el.tags;
+        const hasWebsite = !!(tags.website || tags["contact:website"] || tags.url);
+        const hasPhone = !!(tags.phone || tags["contact:phone"]);
+        const hasNoWebsite = !hasWebsite;
+        const hasLimitedPublicPresence = !hasWebsite || !hasPhone;
+        const qualifies = presenceMode === "No listed website" ? hasNoWebsite
+          : presenceMode === "Limited public presence" ? hasLimitedPublicPresence
+          : hasNoWebsite || hasLimitedPublicPresence;
+        if (!qualifies) return results;
+        const businessType = tags.shop || tags.amenity || tags.office || tags.craft || category;
+        results.push({
+          id: `osm-${el.id}`,
+          name: tags.name,
+          category: businessType.replaceAll("_", " "),
+          location: [tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(", ") || marketLabel,
+          phone: tags.phone || tags["contact:phone"] || "No public phone listed",
+          email: tags.email || tags["contact:email"] ? "Public email available" : undefined,
+          address: [tags["addr:housenumber"], tags["addr:street"], tags["addr:city"]].filter(Boolean).join(", ") || undefined,
+          verified: true,
+          hasWebsite,
+          score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
+          growthPath: "Review presence and propose next step",
+          position: { lat: el.lat, lng: el.lon },
+          source: `https://www.openstreetmap.org/node/${el.id}`,
+          presence: hasNoWebsite ? "No website listed" : "Limited public presence",
+        });
+        return results;
+      }, []).slice(0, 12);
 
       if (nextLeads.length === 0) {
         setLeads([]);
@@ -386,27 +418,35 @@ export default function Home() {
     setIsLookingUpCompanyContact(true);
     setCompanyContactLookupComplete(false);
     try {
-      const placesApi = (window.google?.maps as unknown as { places?: { Place?: { searchByText?: (request: unknown) => Promise<{ places?: unknown[] }> } } })?.places;
-      if (!placesApi?.Place?.searchByText) throw new Error("Public listing service is still loading");
       const sourceLocation = selectedJob.geography && selectedJob.geography !== "Anywhere" ? selectedJob.geography : jobCountry;
-      const response = await placesApi.Place.searchByText({
-        textQuery: `${selectedJob.company} ${sourceLocation}`,
-        fields: ["formattedAddress", "nationalPhoneNumber", "internationalPhoneNumber", "websiteURI", "googleMapsURI"],
-        maxResultCount: 1,
-      });
-      const item = (response.places || [])[0] as {
-        formattedAddress?: string;
-        nationalPhoneNumber?: string;
-        internationalPhoneNumber?: string;
-        websiteURI?: string;
-        googleMapsURI?: string;
-      } | undefined;
-      setPublicCompanyContact(item ? {
-        phone: item.nationalPhoneNumber || item.internationalPhoneNumber,
-        website: item.websiteURI,
-        address: item.formattedAddress,
-        listingUrl: item.googleMapsURI,
-      } : null);
+      const searchQuery = `${selectedJob.company} ${sourceLocation}`;
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?` +
+        new URLSearchParams({ q: searchQuery, format: "json", limit: "1", addressdetails: "1", extratags: "1" }),
+        { headers: { "Accept": "application/json" } },
+      );
+      const data = (await res.json()) as Array<{
+        display_name?: string;
+        lat?: string;
+        lon?: string;
+        osm_type?: string;
+        osm_id?: number;
+        extratags?: Record<string, string>;
+      }>;
+      const item = data[0];
+      if (item) {
+        const tags = item.extratags || {};
+        setPublicCompanyContact({
+          phone: tags.phone || tags["contact:phone"] || undefined,
+          website: tags.website || tags["contact:website"] || undefined,
+          address: item.display_name || undefined,
+          listingUrl: item.osm_type && item.osm_id
+            ? `https://www.openstreetmap.org/${item.osm_type}/${item.osm_id}`
+            : undefined,
+        });
+      } else {
+        setPublicCompanyContact(null);
+      }
       setCompanyContactLookupComplete(true);
     } catch {
       setCompanyContactLookupComplete(true);
@@ -600,7 +640,7 @@ export default function Home() {
                   initialCenter={{ lat: 30.2672, lng: -97.7431 }}
                   initialZoom={11}
                   className="finder-map"
-                  onMapReady={(map) => { mapRef.current = map; if (leads.some((item) => item.position)) addMapPins(leads); }}
+                  onMapReady={(map: L.Map) => { mapRef.current = map; if (leads.some((item) => item.position)) addMapPins(leads); }}
                 />
               </div>
               {selectedLead ? (
