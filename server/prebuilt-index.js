@@ -901,10 +901,39 @@ var ROLE_ALIASES = {
 };
 var countryToJobicyGeo = {
   "United States": "usa",
+  "United Kingdom": "uk",
   Canada: "canada",
   Australia: "australia",
+  Germany: "germany",
+  France: "france",
+  Netherlands: "netherlands",
+  Spain: "spain",
+  Italy: "italy",
+  Poland: "poland",
+  Sweden: "sweden",
+  Switzerland: "switzerland",
+  Ireland: "ireland",
+  Portugal: "portugal",
+  Denmark: "denmark",
+  Norway: "norway",
+  Finland: "finland",
+  Belgium: "belgium",
+  Austria: "austria",
+  Romania: "romania",
+  "Czech Republic": "czech-republic",
+  India: "india",
+  Japan: "japan",
   China: "china",
-  "Hong Kong": "hong-kong"
+  "Hong Kong": "hong-kong",
+  Singapore: "singapore",
+  "South Korea": "south-korea",
+  Israel: "israel",
+  "United Arab Emirates": "uae",
+  Mexico: "mexico",
+  Brazil: "brazil",
+  Argentina: "argentina",
+  Colombia: "colombia",
+  Chile: "chile"
 };
 var regionToJobicyGeo = {
   Europe: "europe",
@@ -966,32 +995,34 @@ function matchesRequestedRole(job, requestedRole) {
   const aliases = ROLE_ALIASES[normalizedRole] || [normalizedRole];
   return aliases.some((alias) => searchable.includes(alias));
 }
+async function fetchJobicy(params) {
+  const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
+    headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }
+  });
+  if (!response.ok) return [];
+  const payload = await response.json();
+  return mapFreshJobs(payload.jobs || []);
+}
 async function searchFreshJobs(input) {
-  const params = new URLSearchParams({ count: String(Math.min(Math.max(input.limit || 50, 1), 60)) });
-  const role = input.role.trim();
-  if (role && role !== "All hiring roles") params.set("tag", role);
   const geoScope = getJobicyGeoScope(input);
-  params.set("geo", geoScope.geo);
+  const role = input.role.trim();
+  const hasRole = role && role !== "All hiring roles";
+  const count = String(Math.min(Math.max(input.limit || 50, 1), 60));
   let jobs = [];
   try {
-    const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
-      headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }
-    });
-    if (response.ok) {
-      const payload = await response.json();
-      jobs = mapFreshJobs(payload.jobs || []).filter((job) => matchesRequestedRole(job, input.role));
+    if (hasRole) {
+      const tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role });
+      jobs = (await fetchJobicy(tagParams)).filter((job) => matchesRequestedRole(job, role));
     }
-    if (!response.ok && jobs.length === 0) {
-      const broadParams = new URLSearchParams({ count: "50", geo: geoScope.geo });
-      try {
-        const broadResponse = await fetch(`https://jobicy.com/api/v2/remote-jobs?${broadParams.toString()}`, {
-          headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }
-        });
-        if (broadResponse.ok) {
-          const broadPayload = await broadResponse.json();
-          jobs = mapFreshJobs(broadPayload.jobs || []).filter((job) => matchesRequestedRole(job, input.role));
-        }
-      } catch (_) {}
+    if (jobs.length === 0) {
+      const broadParams = new URLSearchParams({ count, geo: geoScope.geo });
+      const allJobs = await fetchJobicy(broadParams);
+      jobs = hasRole ? allJobs.filter((job) => matchesRequestedRole(job, role)) : allJobs;
+    }
+    if (jobs.length === 0 && geoScope.scope === "country") {
+      const regionParams = new URLSearchParams({ count, geo: regionToJobicyGeo[input.region] });
+      const regionJobs = await fetchJobicy(regionParams);
+      jobs = hasRole ? regionJobs.filter((job) => matchesRequestedRole(job, role)) : regionJobs;
     }
   } catch (_) {}
   return {

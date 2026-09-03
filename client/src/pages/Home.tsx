@@ -175,6 +175,12 @@ const locationSuggestions: Array<{ country: string; region: MarketRegion; city: 
   { country: "Canada", region: "Americas", city: "Toronto" },
 ];
 
+const regionCenters: Record<MarketRegion, { lat: number; lng: number }> = {
+  Americas: { lat: 37.77, lng: -97.74 },
+  Europe: { lat: 50.11, lng: 10.45 },
+  Asia: { lat: 34.69, lng: 103.41 },
+};
+
 export default function Home() {
   const { isAuthenticated } = useAuth();
   const [location, setLocation] = useState("Austin");
@@ -222,6 +228,13 @@ export default function Home() {
     setPublicCompanyContact(null);
     setCompanyContactLookupComplete(false);
   }, [selectedJobId]);
+
+  useEffect(() => {
+    if (!searched) return;
+    setLeads([]);
+    setSelectedLead(null);
+    setUsingPreview(false);
+  }, [country, region]);
 
   const visibleLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -286,23 +299,41 @@ export default function Home() {
         ? Math.min(15000, Math.max(2000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000))
         : 5000;
 
-      const osmCategory = category === "All local businesses" ? ""
-        : category === "Restaurant" ? '["amenity"~"restaurant|cafe|fast_food|bar"]'
-        : category === "Home services" ? '["shop"~"hardware|furniture|doityourself"]["craft"]'
-        : category === "Beauty & wellness" ? '["shop"~"beauty|hairdresser|massage"]["amenity"~"beauty|spa"]'
-        : category === "Retail" ? '["shop"]'
-        : category === "Auto services" ? '["shop"~"car_repair|car"]["amenity"~"car_wash|fuel"]'
-        : category === "Professional services" ? '["office"]'
-        : "";
+      const aroundClause = `(around:${radius},${center.lat},${center.lng})`;
+      const categoryUnionMembers: string[] = (() => {
+        switch (category) {
+          case "Restaurant":
+            return [`node["name"]["amenity"~"restaurant|cafe|fast_food|bar"]${aroundClause};`];
+          case "Home services":
+            return [
+              `node["name"]["shop"~"hardware|furniture|doityourself"]${aroundClause};`,
+              `node["name"]["craft"]${aroundClause};`,
+            ];
+          case "Beauty & wellness":
+            return [
+              `node["name"]["shop"~"beauty|hairdresser|massage"]${aroundClause};`,
+              `node["name"]["amenity"~"beauty|spa"]${aroundClause};`,
+            ];
+          case "Retail":
+            return [`node["name"]["shop"]${aroundClause};`];
+          case "Auto services":
+            return [
+              `node["name"]["shop"~"car_repair|car"]${aroundClause};`,
+              `node["name"]["amenity"~"car_wash|fuel"]${aroundClause};`,
+            ];
+          case "Professional services":
+            return [`node["name"]["office"]${aroundClause};`];
+          default:
+            return [
+              `node["name"]["shop"]${aroundClause};`,
+              `node["name"]["amenity"]${aroundClause};`,
+              `node["name"]["office"]${aroundClause};`,
+              `node["name"]["craft"]${aroundClause};`,
+            ];
+        }
+      })();
 
-      const overpassQuery = `
-        [out:json][timeout:15];
-        (
-          node${osmCategory || '["name"]["shop"]'}(around:${radius},${center.lat},${center.lng});
-          node${osmCategory || '["name"]["amenity"]'}(around:${radius},${center.lat},${center.lng});
-        );
-        out body 30;
-      `;
+      const overpassQuery = `[out:json][timeout:15];(${categoryUnionMembers.join("")});out body 40;`;
       const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
         method: "POST",
         body: `data=${encodeURIComponent(overpassQuery)}`,
@@ -361,10 +392,10 @@ export default function Home() {
         toast.success(`${nextLeads.length} opportunity ${nextLeads.length === 1 ? "profile" : "profiles"} found in ${country}.`);
       }
     } catch {
-      setLeads(previewLeads);
-      setSelectedLead(previewLeads[0]);
-      setUsingPreview(true);
-      toast.message("Live source is loading — showing the Finder research preview for now.");
+      setLeads([]);
+      setSelectedLead(null);
+      setUsingPreview(false);
+      toast.error("The live business search could not reach the data source. Check your connection and try again.");
     } finally {
       setIsSearching(false);
       window.setTimeout(() => scrollTo("finder-workspace"), 40);
@@ -637,8 +668,8 @@ export default function Home() {
               <div className="detail-map-wrap">
                 <div className="map-label"><Globe2 size={15} /> {country.toUpperCase()} CONTEXT</div>
                 <MapView
-                  initialCenter={{ lat: 30.2672, lng: -97.7431 }}
-                  initialZoom={11}
+                  initialCenter={regionCenters[region]}
+                  initialZoom={4}
                   className="finder-map"
                   onMapReady={(map: L.Map) => { mapRef.current = map; if (leads.some((item) => item.position)) addMapPins(leads); }}
                 />
