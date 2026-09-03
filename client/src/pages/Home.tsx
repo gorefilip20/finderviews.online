@@ -194,6 +194,8 @@ export default function Home() {
   const [jobRole, setJobRole] = useState("Product manager");
   const [jobRegion, setJobRegion] = useState<MarketRegion>("Americas");
   const [jobCountry, setJobCountry] = useState("United States");
+  const [jobFreshnessDays, setJobFreshnessDays] = useState(5);
+  const [jobRemoteOnly, setJobRemoteOnly] = useState(true);
   const [jobSearchRequested, setJobSearchRequested] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [approvedBriefFor, setApprovedBriefFor] = useState<string | null>(null);
@@ -203,7 +205,7 @@ export default function Home() {
   const mapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<unknown[]>([]);
 
-  const jobSearchInput = useMemo(() => ({ role: jobRole || "All hiring roles", country: jobCountry, region: jobRegion }), [jobCountry, jobRegion, jobRole]);
+  const jobSearchInput = useMemo(() => ({ role: jobRole || "All hiring roles", country: jobCountry, region: jobRegion, freshnessDays: jobFreshnessDays, remoteOnly: jobRemoteOnly }), [jobCountry, jobRegion, jobRole, jobFreshnessDays, jobRemoteOnly]);
   const hiringSearch = trpc.hiring.search.useQuery(jobSearchInput, { enabled: jobSearchRequested, retry: false, refetchOnWindowFocus: false });
   const hiringBrief = trpc.hiring.brief.useMutation({
     onSuccess: () => toast.success("Hiring brief prepared from the public job listing."),
@@ -635,11 +637,13 @@ export default function Home() {
           </div>
 
           <div className="hiring-search-card">
-            <div className="hiring-search-card__top"><span><FileClock size={15} /> STRICT FRESHNESS WINDOW</span><span className="freshness-badge">≤ 5 days old</span></div>
+            <div className="hiring-search-card__top"><span><FileClock size={15} /> STRICT FRESHNESS WINDOW</span><span className="freshness-badge">≤ {jobFreshnessDays} days old</span></div>
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
               <label><span>ELIGIBLE REGION</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRegion} onChange={(event) => { const nextRegion = event.target.value as MarketRegion; setJobRegion(nextRegion); setJobCountry(MARKET_COVERAGE[nextRegion][0]); }}>{SUPPORTED_REGIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => setJobCountry(event.target.value)}>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>POSTED WITHIN</span><div className="hiring-select"><FileClock size={16} /><select value={jobFreshnessDays} onChange={(event) => setJobFreshnessDays(Number(event.target.value))}>{[1, 3, 5, 7, 14, 30].map((days) => <option key={days} value={days}>{days} day{days === 1 ? "" : "s"}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>SCOPE</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRemoteOnly ? "remote" : "market"} onChange={(event) => setJobRemoteOnly(event.target.value === "remote")}><option value="remote">Remote and worldwide</option><option value="market">Match my country only</option></select><ChevronDown size={15} /></div></label>
               <button className="hiring-search-button" onClick={runHiringSearch} disabled={hiringSearch.isFetching}>{hiringSearch.isFetching ? <><LoaderCircle className="spin" size={17} /> Sourcing roles</> : <><Search size={17} /> Search fresh roles</>}</button>
             </div>
             <div className="role-suggestions"><span>EXPLORE:</span>{hiringRoleSuggestions.map((role) => <button key={role} onClick={() => setJobRole(role)} className={cn(jobRole.toLowerCase() === role.toLowerCase() && "role-suggestion--active")}>{role}</button>)}</div>
@@ -654,7 +658,23 @@ export default function Home() {
               {jobSearchRequested && hiringSearch.isError && <div className="job-empty-state"><CircleHelp size={30} /><strong>The live job source is unavailable right now.</strong><span>The data-ready workspace is still available. Please try the same role again in a moment.</span></div>}
               {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No fresh role matched this exact search.</strong><span>Try a broader role title, another eligible country, or return soon as the public feed updates.</span></div>}
               {jobs.length > 0 && <div className="job-list">{jobs.map((job) => <button className={cn("job-row", selectedJob?.id === job.id && "job-row--selected")} key={job.id} onClick={() => setSelectedJobId(job.id)}><div className="job-row__company">{job.companyLogo ? <img src={job.companyLogo} alt="" /> : <span className="company-fallback"><Building2 size={15} /></span>}<span><strong>{job.company}</strong><small>{job.geography} · {job.industry.join(", ") || "Hiring company"}</small></span></div><div className="job-row__role"><strong>{job.title}</strong><span>{job.jobType.join(" · ") || "Employment type not specified"}</span></div><div className="job-row__date"><CalendarDays size={14} /><span>{job.ageHours < 24 ? `${job.ageHours}h ago` : `${Math.floor(job.ageHours / 24)}d ago`}</span></div><ArrowUpRight size={16} /></button>)}</div>}
-              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {hiringSearch.data.freshnessDays}-day maximum.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
+              {hiringSearch.data && (
+                <div className="job-results-panel__foot job-diagnostics">
+                  <span className="job-diagnostics__note"><Check size={14} /> {hiringSearch.data.precisionNote}</span>
+                  <span className="job-diagnostics__funnel">
+                    {hiringSearch.data.funnel.fetched} fetched → {hiringSearch.data.funnel.afterFreshness} fresh → {hiringSearch.data.funnel.afterRole} matched role → {hiringSearch.data.funnel.afterDedupe} shown
+                  </span>
+                  <span className="job-diagnostics__sources">
+                    {hiringSearch.data.sources.map((source) => (
+                      <span key={source.source} className="job-source-chip" data-ok={source.ok}>
+                        <span className="signal-dot" style={{ background: source.ok ? "#c8ff3d" : "#cfcec6" }} />
+                        {source.source}{source.ok ? ` · ${source.fetched}` : ` · ${source.error}`}
+                      </span>
+                    ))}
+                  </span>
+                  {hiringSearch.data.attributions.length > 0 && <span className="job-diagnostics__attr">{hiringSearch.data.attributions.join(" · ")}</span>}
+                </div>
+              )}
             </div>
 
             <aside className="hiring-detail-panel">

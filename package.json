@@ -5,7 +5,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/index.ts",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "rm -rf dist && mkdir -p dist && cp -R deploy/public dist/public && cp server/prebuilt-index.js dist/index.js",
+    "build:release": "rm -rf dist deploy/public && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=server/prebuilt-index.js && mkdir -p deploy && cp -R dist/public deploy/public",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "format": "prettier --write .",

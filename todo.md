@@ -117,3 +117,25 @@
 
 - [ ] Discovery by topic still needs a source: a podcast or newsletter directory adapter would turn this from "analyse a URL I found" into "find me twenty". Currently the page analyses URLs the user supplies.
 - [ ] Verify against live sites once deployed; the build environment's egress proxy blocks outbound HTTP, so only the parsing is verified.
+
+
+## Live Job Fetching Fix
+
+- [x] Diagnose why the live site returned no jobs: production runs a committed prebuilt bundle that had never been regenerated, so no source change had ever reached it.
+- [x] Merge the Hostinger deployment work from `main` into the feature branch.
+- [x] Split the build into `build` (host copy) and `build:release` (regenerate the committed artifact), and document that skipping the latter silently ships the old bundle.
+- [x] Send a real User-Agent on every job request; several providers sit behind a CDN that answers 403 to a request without one.
+- [x] Add a per-request timeout so one stalled provider cannot hang the whole search.
+- [x] Stop sending an unmapped `geo` value, which the provider answers with an error.
+- [x] Normalise the provider tag to one keyword; sending raw role text silently emptied the feed.
+- [x] Add Arbeitnow, RemoteOK and Himalayas alongside Jobicy, all key-free, queried in parallel with `allSettled` so one failure does not empty the result.
+- [x] Add public company boards (Greenhouse, Lever, Ashby) for per-employer freshness.
+- [x] Replace exact-alias role matching with token matching weighted toward the title.
+- [x] Make the freshness window a control (1-30 days) instead of a fixed five days.
+- [x] Return a per-stage funnel and per-source status, and surface both in the interface.
+- [x] Add `hiring.sourceHealth` so production can be diagnosed from outside.
+- [x] Regenerate and commit the deployment artifact.
+
+### Open items
+
+- [ ] Confirm the four providers actually answer from Hostinger. The build environment's egress proxy returns 403 for every outbound host, so the adapters are verified by unit test and by their failure path, not against live provider responses.

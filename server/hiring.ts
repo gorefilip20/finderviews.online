@@ -4,6 +4,7 @@
  */
 
 import type { MarketRegion } from "@shared/marketCoverage";
+import { aggregateJobs } from "./jobs";
 
 export const JOBICY_SOURCE_NAME = "Jobicy";
 export const JOBICY_SOURCE_URL = "https://jobicy.com/jobs-rss-feed";
@@ -183,29 +184,66 @@ export function matchesRequestedRole(job: FreshJob, requestedRole: string) {
   return aliases.some((alias) => searchable.includes(alias));
 }
 
-export async function searchFreshJobs(input: FreshJobSearchInput) {
-  const params = new URLSearchParams({ count: String(Math.min(Math.max(input.limit || 24, 1), 60)) });
-  const role = input.role.trim();
-  if (role && role !== "All hiring roles") params.set("tag", role);
+/**
+ * Live multi-source job search.
+ *
+ * Delegates to the aggregator so the result no longer depends on one provider being reachable,
+ * fresh and correctly tagged all at once. The mapping back to `FreshJob` keeps the existing
+ * interface contract intact.
+ */
+export async function searchFreshJobs(input: FreshJobSearchInput & {
+  freshnessDays?: number;
+  remoteOnly?: boolean;
+  location?: string;
+}) {
+  const limit = Math.min(Math.max(input.limit || 24, 1), 60);
+
+  const result = await aggregateJobs(
+    {
+      role: input.role,
+      country: input.country,
+      region: input.region,
+      location: input.location,
+      limit,
+      remoteOnly: input.remoteOnly ?? true,
+    },
+    { freshnessDays: input.freshnessDays ?? MAX_JOB_AGE_DAYS },
+  );
+
+  const jobs: FreshJob[] = result.jobs.map(job => ({
+    id: `${job.sourceName}:${job.externalId}`,
+    title: job.title,
+    company: job.company,
+    companyLogo: job.companyLogo,
+    geography: job.location,
+    industry: job.tags,
+    jobType: job.jobType,
+    level: "Not specified",
+    excerpt: job.excerpt,
+    description: job.description,
+    postedAt: job.postedAt,
+    ageHours: Math.max(0, Math.floor((Date.now() - Date.parse(job.postedAt)) / (60 * 60 * 1000))),
+    sourceUrl: job.url,
+    sourceName: job.sourceName as FreshJob["sourceName"],
+    salary: job.salary,
+    contactStatus: "Use the public source listing or verify a company contact before outreach.",
+  }));
 
   const geoScope = getJobicyGeoScope(input);
-  if (geoScope.geo) params.set("geo", geoScope.geo);
 
-  const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Job source returned ${response.status}`);
-
-  const payload = (await response.json()) as JobicyResponse;
   return {
-    jobs: mapFreshJobs(payload.jobs || []).filter((job) => matchesRequestedRole(job, input.role)),
-    sourceName: JOBICY_SOURCE_NAME,
+    jobs,
+    sourceName: result.sources.filter(source => source.ok).map(source => source.source).join(", ") || JOBICY_SOURCE_NAME,
     sourceUrl: JOBICY_SOURCE_URL,
-    freshnessDays: MAX_JOB_AGE_DAYS,
+    freshnessDays: result.freshnessDays,
     countryFilterApplied: geoScope.scope === "country",
     regionFilterApplied: geoScope.scope === "region",
     globalFeedOnly: geoScope.scope === "global",
-    precisionNote: describeGeoPrecision(geoScope, input.country, input.region),
+    precisionNote: result.note,
+    /** Per-stage counts, so an empty list can always explain itself. */
+    funnel: result.funnel,
+    sources: result.sources,
+    attributions: result.attributions,
     countryContext: input.country,
     regionContext: input.region,
   };

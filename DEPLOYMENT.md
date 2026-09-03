@@ -4,11 +4,27 @@ The production domain for this project is `finderviews.online`.
 
 ## Build and run
 
+Hostinger cannot run esbuild's native postinstall, so it never builds from source. It copies a
+**committed** artifact. That makes the release step below mandatory.
+
 ```bash
-pnpm install --frozen-lockfile
-pnpm build      # vite build + esbuild bundle -> dist/
-pnpm start      # NODE_ENV=production node dist/index.js
+# On Hostinger (copies the committed artifact only)
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm build      # copies deploy/public -> dist/public and server/prebuilt-index.js -> dist/index.js
+pnpm start
 ```
+
+### Releasing a source change — do not skip this
+
+```bash
+pnpm build:release   # vite build + esbuild -> regenerates deploy/public and server/prebuilt-index.js
+git add deploy/public server/prebuilt-index.js
+git commit && git push
+```
+
+**A source change that is not followed by `pnpm build:release` will never reach production.**
+The site will keep serving the previously committed bundle and will look unchanged — which is
+exactly how the live site came to be running an old build while the repository looked correct.
 
 The application listens on the port supplied through `PORT` and serves both the API
 (`/api/*`) and the built single-page app from the same process.
@@ -57,6 +73,28 @@ The endpoint refuses the request unless `CRON_SECRET` is set and the header matc
    and enable SSL.
 4. Verify `https://finderviews.online` and `https://www.finderviews.online` after DNS
    propagation.
+
+## Job sources
+
+Fresh hiring results come from four free sources with no API key, queried in parallel:
+Jobicy, Arbeitnow (the only one carrying on-site as well as remote roles), RemoteOK
+(attribution shown in the interface, as their terms require) and Himalayas. Public company
+boards — Greenhouse, Lever and Ashby — can be queried per company and are the freshest source
+that exists for one named employer.
+
+One source failing costs only that source's rows. Every search returns a funnel —
+fetched → fresh → matched role → shown — and the status of each source, so an empty list always
+explains itself rather than looking like a broken feature.
+
+**If the live site shows no jobs, open this first:**
+
+```bash
+curl https://finderviews.online/api/trpc/hiring.sourceHealth
+```
+
+It reports what each provider actually answered. `HTTP 403` on every source means the host cannot
+reach them (egress or firewall). Sources healthy but zero results means the filters are too tight —
+widen the freshness window or use a broader role.
 
 ## Coverage and contact discovery
 

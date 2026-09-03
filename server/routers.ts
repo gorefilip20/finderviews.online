@@ -10,6 +10,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { COMPLIANCE_DISCLAIMER, complianceFor } from "@shared/compliance";
 import { discoverContacts, fetchPublicHtml, SEGMENT_KEYS, SEGMENTS, type SegmentKey } from "./contacts";
 import { analyseAttentionPage, HUNTING_GROUNDS, pickBestBooking } from "./attention";
+import { aggregateJobs } from "./jobs";
 import { buildCollabBrief, matchCreators, scoreMatch } from "./collab";
 import { buildComparison } from "./comparison";
 import { checkSite, HEALTH_CADENCES, healthReport, listTrackedSites, trackSite, untrackSite } from "./health";
@@ -83,6 +84,10 @@ const jobSearchInput = z
     role: z.string().trim().min(1).max(120),
     country: z.string().trim().min(1).max(80),
     region: regionEnum,
+    /** Widening this is the first thing to try when a market returns nothing. */
+    freshnessDays: z.number().int().min(1).max(30).optional(),
+    remoteOnly: z.boolean().optional(),
+    location: z.string().trim().max(160).optional(),
   })
   .strict();
 
@@ -170,6 +175,26 @@ export const appRouter = router({
         ...JSON.parse(raw),
         sourceNote: `Based only on the public ${input.title} listing. Finder does not provide private contact data; verify a public company contact before outreach.`,
         freshnessLimitDays: MAX_JOB_AGE_DAYS,
+      };
+    }),
+
+    /**
+     * Pings every job source and reports what each one actually answered. This is the endpoint
+     * to open when the live site shows no jobs: it separates "the host cannot reach the
+     * provider" from "the provider returned nothing" from "our filters removed everything".
+     */
+    sourceHealth: publicProcedure.query(async () => {
+      const result = await aggregateJobs(
+        { role: "All hiring roles", country: "United States", region: "Americas", limit: 5, remoteOnly: true },
+        { freshnessDays: 30 },
+      );
+      return {
+        checkedAt: new Date().toISOString(),
+        healthy: result.sources.filter(source => source.ok).length,
+        total: result.sources.length,
+        sources: result.sources,
+        sampleCount: result.jobs.length,
+        note: result.note,
       };
     }),
 
