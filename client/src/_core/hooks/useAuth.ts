@@ -3,11 +3,11 @@ import { trpc } from "@/lib/trpc";
 
 export function useAuth() {
   const queryClient = useQueryClient();
-  const meQuery = trpc.me.useQuery(undefined, {
+  const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const logoutMutation = trpc.logout.useMutation({
+  const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: async () => {
       await queryClient.invalidateQueries();
     },

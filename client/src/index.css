@@ -74,7 +74,7 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .72; }
 
 .finder-shell { min-height: 100vh; position: relative; overflow: hidden; background: #f7f6f1; }
-.page-grain { pointer-events: none; position: fixed; inset: 0; z-index: 20; opacity: .15; background-image: url("/manus-storage/finder-records-texture_6f8e52a3.jpg"); background-size: 1900px auto; mix-blend-mode: multiply; }
+.page-grain { pointer-events: none; position: fixed; inset: 0; z-index: 20; opacity: .07; background-image: repeating-conic-gradient(rgba(0,0,0,.03) 0% 25%, transparent 0% 50%); background-size: 4px 4px; mix-blend-mode: multiply; }
 .finder-nav { position: relative; z-index: 30; max-width: 1450px; margin: 0 auto; padding: 1.15rem 3.25rem; min-height: 78px; display: flex; align-items: center; justify-content: space-between; }
 .brand-button { padding: 0; border: 0; background: none; }
 .finder-logo { display: inline-flex; align-items: center; gap: .58rem; color: #1d241f; }
@@ -89,7 +89,7 @@ button:disabled { cursor: not-allowed; opacity: .72; }
 .nav-cta:hover { background: #c8ff3d; box-shadow: 3px 3px 0 #1d241f; transform: translate(-2px,-2px); }
 .menu-button { display: none; width: 42px; height: 42px; padding: 0; align-items: center; justify-content: center; border: 1px solid #1d241f; border-radius: 50%; background: #f7f6f1; }
 .hero-section { position: relative; min-height: 710px; padding: 6rem 3.25rem 5.4rem; isolation: isolate; }
-.hero-map { position: absolute; inset: 0; z-index: -2; background: linear-gradient(90deg, rgba(247,246,241,.98) 0%, rgba(247,246,241,.95) 43%, rgba(247,246,241,.35) 78%, rgba(247,246,241,.05) 100%), url("/manus-storage/finder-world-opportunity-map_233666f3.jpg") center/cover; }
+.hero-map { position: absolute; inset: 0; z-index: -2; background: linear-gradient(90deg, rgba(247,246,241,.98) 0%, rgba(247,246,241,.95) 43%, rgba(247,246,241,.35) 78%, rgba(247,246,241,.05) 100%), radial-gradient(ellipse at 70% 50%, rgba(200,195,180,.18) 0%, transparent 70%) center/cover; }
 .hero-map::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(247,246,241,.5), rgba(247,246,241,.96) 89%); }
 .hero-grid { max-width: 1350px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, .7fr); align-items: center; gap: 5.5rem; }
 .hero-copy { padding-top: 2.8rem; max-width: 730px; }
@@ -142,7 +142,7 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .method-item p { max-width: 290px; margin: 0; color: #627063; font-size: .79rem; line-height: 1.65; }
 
 .workspace-section { position: relative; padding: 6rem 3.25rem 6.8rem; background: #1d241f; color: #f7f6f1; overflow: hidden; }
-.workspace-section::before { content: ""; position: absolute; inset: 0; z-index: 0; opacity: .22; background: url("/manus-storage/finder-verification-field_367a25e1.jpg") center/cover; mix-blend-mode: screen; }
+.workspace-section::before { content: ""; position: absolute; inset: 0; z-index: 0; opacity: .22; background: linear-gradient(135deg, rgba(200,255,61,.04) 0%, rgba(29,36,31,.06) 100%) center/cover; mix-blend-mode: screen; }
 .workspace-header, .workspace-controls, .workspace-main { position: relative; z-index: 1; max-width: 1348px; margin-left: auto; margin-right: auto; }
 .workspace-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2.5rem; }
 .workspace-header h2 { margin-top: .9rem; color: #f7f6f1; }
@@ -311,7 +311,7 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .job-detail-empty span { max-width: 280px; font-size: .69rem; line-height: 1.6; }
 
 .growth-section { display: grid; grid-template-columns: minmax(0, .88fr) minmax(0, 1.12fr); background: #e7e5de; }
-.growth-image { min-height: 700px; background: linear-gradient(180deg, rgba(29,36,31,.05), rgba(29,36,31,.12)), url("/manus-storage/finder-brand-springboard_1b783afb.jpg") center/cover; }
+.growth-image { min-height: 700px; background: linear-gradient(180deg, rgba(29,36,31,.05), rgba(29,36,31,.12)), linear-gradient(135deg, rgba(29,36,31,.88) 0%, rgba(44,54,47,.92) 50%, rgba(29,36,31,.96) 100%) center/cover; }
 .growth-content { padding: 7rem min(6.8vw, 8rem); }
 .growth-content h2 { margin-top: .9rem; }
 .growth-content > p { max-width: 550px; margin-top: 1.65rem; padding: 0; }
@@ -399,7 +399,7 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
   .menu-button { display: inline-flex; }
   .hero-section { min-height: auto; padding: 3.5rem 1.15rem 4.8rem; }
   .hero-search-card { max-height: none; }
-  .hero-map { background: linear-gradient(180deg, rgba(247,246,241,.96), rgba(247,246,241,.78)), url("/manus-storage/finder-world-opportunity-map_233666f3.jpg") 60% center/cover; }
+  .hero-map { background: linear-gradient(180deg, rgba(247,246,241,.96), rgba(247,246,241,.78)), radial-gradient(ellipse at 60% 50%, rgba(200,195,180,.18) 0%, transparent 70%) center/cover; }
   .hero-grid, .section-heading, .growth-section, .delivery-section, .faq-section, .hiring-head { grid-template-columns: 1fr; }
   .hero-grid { gap: 2.8rem; }
   .hero-copy { padding-top: 0; }
