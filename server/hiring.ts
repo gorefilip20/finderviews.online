@@ -5,7 +5,7 @@
 
 export const JOBICY_SOURCE_NAME = "Jobicy";
 export const JOBICY_SOURCE_URL = "https://jobicy.com/jobs-rss-feed";
-export const MAX_JOB_AGE_DAYS = 5;
+export const MAX_JOB_AGE_DAYS = 30;
 const MAX_JOB_AGE_MS = MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1000;
 const ROLE_ALIASES: Record<string, string[]> = {
   "product manager": ["product manager", "product management"],
@@ -73,10 +73,39 @@ export type FreshJobSearchInput = {
 
 const countryToJobicyGeo: Record<string, string> = {
   "United States": "usa",
+  "United Kingdom": "uk",
   Canada: "canada",
   Australia: "australia",
+  Germany: "germany",
+  France: "france",
+  Netherlands: "netherlands",
+  Spain: "spain",
+  Italy: "italy",
+  Poland: "poland",
+  Sweden: "sweden",
+  Switzerland: "switzerland",
+  Ireland: "ireland",
+  Portugal: "portugal",
+  Denmark: "denmark",
+  Norway: "norway",
+  Finland: "finland",
+  Belgium: "belgium",
+  Austria: "austria",
+  Romania: "romania",
+  "Czech Republic": "czech-republic",
+  India: "india",
+  Japan: "japan",
   China: "china",
   "Hong Kong": "hong-kong",
+  Singapore: "singapore",
+  "South Korea": "south-korea",
+  Israel: "israel",
+  "United Arab Emirates": "uae",
+  Mexico: "mexico",
+  Brazil: "brazil",
+  Argentina: "argentina",
+  Colombia: "colombia",
+  Chile: "chile",
 };
 
 const regionToJobicyGeo: Record<FreshJobSearchInput["region"], string> = {
@@ -159,22 +188,42 @@ export function matchesRequestedRole(job: FreshJob, requestedRole: string) {
   return aliases.some((alias) => searchable.includes(alias));
 }
 
-export async function searchFreshJobs(input: FreshJobSearchInput) {
-  const params = new URLSearchParams({ count: String(Math.min(Math.max(input.limit || 24, 1), 60)) });
-  const role = input.role.trim();
-  if (role && role !== "All hiring roles") params.set("tag", role);
-
-  const geoScope = getJobicyGeoScope(input);
-  params.set("geo", geoScope.geo);
-
+async function fetchJobicy(params: URLSearchParams): Promise<FreshJob[]> {
   const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" },
   });
-  if (!response.ok) throw new Error(`Job source returned ${response.status}`);
-
+  if (!response.ok) return [];
   const payload = (await response.json()) as JobicyResponse;
+  return mapFreshJobs(payload.jobs || []);
+}
+
+export async function searchFreshJobs(input: FreshJobSearchInput) {
+  const geoScope = getJobicyGeoScope(input);
+  const role = input.role.trim();
+  const hasRole = role && role !== "All hiring roles";
+  const count = String(Math.min(Math.max(input.limit || 50, 1), 60));
+
+  let jobs: FreshJob[] = [];
+  try {
+    if (hasRole) {
+      const tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role });
+      jobs = (await fetchJobicy(tagParams)).filter((job) => matchesRequestedRole(job, role));
+    }
+    if (jobs.length === 0) {
+      const broadParams = new URLSearchParams({ count, geo: geoScope.geo });
+      const allJobs = await fetchJobicy(broadParams);
+      jobs = hasRole ? allJobs.filter((job) => matchesRequestedRole(job, role)) : allJobs;
+    }
+    if (jobs.length === 0 && geoScope.scope === "country") {
+      const regionParams = new URLSearchParams({ count, geo: regionToJobicyGeo[input.region] });
+      const regionJobs = await fetchJobicy(regionParams);
+      jobs = hasRole ? regionJobs.filter((job) => matchesRequestedRole(job, role)) : regionJobs;
+    }
+  } catch {
+    // network failure — return empty results gracefully
+  }
   return {
-    jobs: mapFreshJobs(payload.jobs || []).filter((job) => matchesRequestedRole(job, input.role)),
+    jobs,
     sourceName: JOBICY_SOURCE_NAME,
     sourceUrl: JOBICY_SOURCE_URL,
     freshnessDays: MAX_JOB_AGE_DAYS,
