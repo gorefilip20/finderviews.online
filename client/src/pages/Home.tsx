@@ -126,6 +126,7 @@ export default function Home() {
   const [jobRole, setJobRole] = useState("Product manager");
   const [jobRegion, setJobRegion] = useState<MarketRegion>("Americas");
   const [jobCountry, setJobCountry] = useState("United States");
+  const [jobFreshness, setJobFreshness] = useState<"24h" | "7d" | "30d">("30d");
   const [jobSearchRequested, setJobSearchRequested] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [approvedBriefFor, setApprovedBriefFor] = useState<string | null>(null);
@@ -141,7 +142,10 @@ export default function Home() {
     onSuccess: () => toast.success("Hiring brief prepared from the public job listing."),
     onError: () => toast.error("Finder could not prepare that brief just now. Please try again."),
   });
-  const jobs = hiringSearch.data?.jobs || [];
+  const freshnessMaxHours = jobFreshness === "24h" ? 24 : jobFreshness === "7d" ? 168 : 720;
+  const freshnessLabel = jobFreshness === "24h" ? "24 hours" : jobFreshness === "7d" ? "7 days" : "30 days";
+  const allJobs = hiringSearch.data?.jobs || [];
+  const jobs = allJobs.filter((job) => job.ageHours <= freshnessMaxHours);
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || jobs[0];
 
   useEffect(() => {
@@ -288,12 +292,7 @@ export default function Home() {
       })();
 
       const overpassQuery = `[out:json][timeout:25];(${categoryUnionMembers.join("")});out center body 50;`;
-      const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
-        method: "POST",
-        body: `data=${encodeURIComponent(overpassQuery)}`,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
-      const overpassData = (await overpassRes.json()) as {
+      let overpassData: {
         elements: Array<{
           id: number;
           type: string;
@@ -303,6 +302,35 @@ export default function Home() {
           tags?: Record<string, string>;
         }>;
       };
+      try {
+        const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
+          method: "POST",
+          body: `data=${encodeURIComponent(overpassQuery)}`,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
+        if (!overpassRes.ok) {
+          setLeads([]);
+          setSelectedLead(null);
+          setUsingPreview(false);
+          if (overpassRes.status === 429) {
+            toast.error("The data source is rate-limited. Wait a moment and try again.");
+          } else if (overpassRes.status === 504 || overpassRes.status === 408) {
+            toast.message("That area timed out. Try narrowing your search with a specific city name.");
+          } else {
+            toast.message("The data source returned an error. Try a different city or category.");
+          }
+          setIsSearching(false);
+          return;
+        }
+        overpassData = (await overpassRes.json()) as typeof overpassData;
+      } catch {
+        setLeads([]);
+        setSelectedLead(null);
+        setUsingPreview(false);
+        toast.error("Could not reach the business data source. Check your connection and try again.");
+        setIsSearching(false);
+        return;
+      }
 
       const nextLeads = overpassData.elements.reduce<Lead[]>((results, el) => {
         if (!el.tags?.name) return results;
@@ -354,7 +382,7 @@ export default function Home() {
       setLeads([]);
       setSelectedLead(null);
       setUsingPreview(false);
-      toast.error("The live business search could not reach the data source. Check your connection and try again.");
+      toast.error("Could not complete the search. Check your connection and try again, or add a specific city name.");
     } finally {
       setIsSearching(false);
       window.setTimeout(() => scrollTo("finder-workspace"), 40);
@@ -657,30 +685,31 @@ export default function Home() {
               <span className="section-number">03 / FRESH HIRING SIGNALS</span>
               <h2>Find the companies<br />that are building <em>right now.</em></h2>
             </div>
-            <p>Search current public remote-job listings by role and eligible market. Finderviews keeps only records published within <strong>30 days</strong>, then frames the company need for a useful first conversation.</p>
+            <p>Search current public remote-job listings by role and eligible market. Filter by freshness to find opportunities posted <strong>today</strong>, this week, or within the last 30 days, then frame the company need for a useful first conversation.</p>
           </div>
 
           <div className="hiring-search-card">
-            <div className="hiring-search-card__top"><span><FileClock size={15} /> FRESHNESS WINDOW</span><span className="freshness-badge">≤ 30 days old</span></div>
+            <div className="hiring-search-card__top"><span><FileClock size={15} /> FRESHNESS WINDOW</span><span className="freshness-badge">{jobFreshness === "24h" ? "today only" : `≤ ${freshnessLabel} old`}</span></div>
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
               <label><span>ELIGIBLE REGION</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRegion} onChange={(event) => { const nextRegion = event.target.value as MarketRegion; setJobRegion(nextRegion); setJobCountry(MARKET_COVERAGE[nextRegion][0]); }}>{SUPPORTED_REGIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => setJobCountry(event.target.value)}>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>POSTED WITHIN</span><div className="hiring-select"><CalendarDays size={16} /><select value={jobFreshness} onChange={(event) => setJobFreshness(event.target.value as typeof jobFreshness)}><option value="24h">Today (24 hours)</option><option value="7d">This week (7 days)</option><option value="30d">Last 30 days</option></select><ChevronDown size={15} /></div></label>
               <button className="hiring-search-button" onClick={runHiringSearch} disabled={hiringSearch.isFetching}>{hiringSearch.isFetching ? <><LoaderCircle className="spin" size={17} /> Sourcing roles</> : <><Search size={17} /> Search fresh roles</>}</button>
             </div>
             <div className="role-suggestions"><span>EXPLORE:</span>{hiringRoleSuggestions.map((role) => <button key={role} onClick={() => setJobRole(role)} className={cn(jobRole.toLowerCase() === role.toLowerCase() && "role-suggestion--active")}>{role}</button>)}</div>
-            <p className="hiring-source-note"><CircleHelp size={14} /> Live source: Jobicy. Results are filtered to the last 30 days. Finderviews applies a direct country filter where Jobicy supports one, otherwise its documented regional filter; every result shows its source geography.</p>
+            <p className="hiring-source-note"><CircleHelp size={14} /> Live source: Jobicy. Results filtered to the last {freshnessLabel}. Finderviews applies a direct country filter where Jobicy supports one, otherwise its documented regional filter; every result shows its source geography.</p>
           </div>
 
           <div className="hiring-body">
             <div className="job-results-panel">
-              <div className="job-results-panel__top"><div><span>LIVE_HIRING_SIGNAL_FEED</span><small>{hiringSearch.data ? `${jobs.length} fresh roles from ${hiringSearch.data.sourceName}` : "Choose a role, country, and run a fresh search."}</small></div><span className={cn("source-status", jobSearchRequested && !hiringSearch.isError && "source-status--active")}><i /> {hiringSearch.isFetching ? "checking" : hiringSearch.data ? "fresh source" : "ready"}</span></div>
+              <div className="job-results-panel__top"><div><span>LIVE_HIRING_SIGNAL_FEED</span><small>{hiringSearch.data ? `${jobs.length} fresh role${jobs.length === 1 ? "" : "s"} from ${hiringSearch.data.sourceName}${jobFreshness !== "30d" && allJobs.length !== jobs.length ? ` (${allJobs.length} in 30d)` : ""}` : "Choose a role, country, and run a fresh search."}</small></div><span className={cn("source-status", jobSearchRequested && !hiringSearch.isError && "source-status--active")}><i /> {hiringSearch.isFetching ? "checking" : hiringSearch.data ? "fresh source" : "ready"}</span></div>
               {!jobSearchRequested && <div className="job-empty-state"><UsersRound size={31} /><strong>Start with a role the company needs.</strong><span>Try product management, social media growth, web development, content, co-founder, life sciences, or operations leadership.</span></div>}
-              {jobSearchRequested && hiringSearch.isFetching && <div className="job-empty-state"><LoaderCircle className="spin" size={30} /><strong>Checking hiring signals.</strong><span>Finderviews is searching for matching roles published within the last 30 days.</span></div>}
+              {jobSearchRequested && hiringSearch.isFetching && <div className="job-empty-state"><LoaderCircle className="spin" size={30} /><strong>Checking hiring signals.</strong><span>Finderviews is searching for matching roles published within the last {freshnessLabel}.</span></div>}
               {jobSearchRequested && hiringSearch.isError && <div className="job-empty-state"><CircleHelp size={30} /><strong>The live job source is unavailable right now.</strong><span>The data-ready workspace is still available. Please try the same role again in a moment.</span></div>}
-              {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No roles matched this search right now.</strong><span>Try a broader role title (like "developer" instead of "web developer"), change the region, or check back as new jobs get posted.</span></div>}
+              {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No roles matched this search{jobFreshness !== "30d" ? ` within ${freshnessLabel}` : ""} right now.</strong><span>{jobFreshness !== "30d" && allJobs.length > 0 ? `${allJobs.length} role${allJobs.length === 1 ? "" : "s"} found in the full 30-day window. Widen the freshness filter to see them.` : "Try a broader role title (like \"developer\" instead of \"web developer\"), change the region, or widen the freshness window."}</span></div>}
               {jobs.length > 0 && <div className="job-list">{jobs.map((job) => <button className={cn("job-row", selectedJob?.id === job.id && "job-row--selected")} key={job.id} onClick={() => setSelectedJobId(job.id)}><div className="job-row__company">{job.companyLogo ? <img src={job.companyLogo} alt="" /> : <span className="company-fallback"><Building2 size={15} /></span>}<span><strong>{job.company}</strong><small>{job.geography} · {job.industry.join(", ") || "Hiring company"}</small></span></div><div className="job-row__role"><strong>{job.title}</strong><span>{job.jobType.join(" · ") || "Employment type not specified"}</span></div><div className="job-row__date"><CalendarDays size={14} /><span>{job.ageHours < 24 ? `${job.ageHours}h ago` : `${Math.floor(job.ageHours / 24)}d ago`}</span></div><ArrowUpRight size={16} /></button>)}</div>}
-              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {hiringSearch.data.freshnessDays}-day maximum.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
+              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {freshnessLabel} window.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
             </div>
 
             <aside className="hiring-detail-panel">
