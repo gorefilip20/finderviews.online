@@ -66,80 +66,6 @@ type PublicCompanyContact = {
   listingUrl?: string;
 };
 
-const previewLeads: Lead[] = [
-  {
-    id: "preview-1",
-    name: "Cedar & Loom Goods",
-    category: "Home goods",
-    location: "Austin, TX",
-    phone: "+1 (512) 555-0138",
-    email: "Public email available",
-    address: "South Congress, Austin",
-    verified: true,
-    hasWebsite: false,
-    score: 92,
-    growthPath: "Brand + website foundation",
-    preview: true,
-    presence: "No website listed",
-  },
-  {
-    id: "preview-2",
-    name: "Orchard Street Auto",
-    category: "Auto repair",
-    location: "Austin, TX",
-    phone: "+1 (512) 555-0187",
-    address: "East Austin",
-    verified: true,
-    hasWebsite: false,
-    score: 88,
-    growthPath: "Local search presence",
-    preview: true,
-    presence: "Limited public presence",
-  },
-  {
-    id: "preview-3",
-    name: "Rosa's Kitchenette",
-    category: "Restaurant",
-    location: "Austin, TX",
-    phone: "+1 (512) 555-0112",
-    email: "Public email available",
-    address: "Bouldin Creek, Austin",
-    verified: true,
-    hasWebsite: false,
-    score: 86,
-    growthPath: "Menu site + visual identity",
-    preview: true,
-    presence: "No website listed",
-  },
-  {
-    id: "preview-4",
-    name: "Juniper Dog Studio",
-    category: "Pet grooming",
-    location: "Austin, TX",
-    phone: "+1 (512) 555-0165",
-    address: "Hyde Park, Austin",
-    verified: true,
-    hasWebsite: false,
-    score: 79,
-    growthPath: "Booking-first website",
-    preview: true,
-    presence: "No website listed",
-  },
-  {
-    id: "preview-5",
-    name: "The Daily Scone",
-    category: "Bakery",
-    location: "Austin, TX",
-    phone: "+1 (512) 555-0194",
-    address: "North Loop, Austin",
-    verified: true,
-    hasWebsite: false,
-    score: 76,
-    growthPath: "Brand refresh + online ordering",
-    preview: true,
-    presence: "Limited public presence",
-  },
-];
 
 const categories = ["All local businesses", "Restaurant", "Home services", "Beauty & wellness", "Retail", "Auto services", "Professional services"];
 const presenceOptions = ["No website or limited presence", "No listed website", "Limited public presence"] as const;
@@ -188,13 +114,13 @@ export default function Home() {
   const [country, setCountry] = useState("United States");
   const [category, setCategory] = useState("All local businesses");
   const [presenceMode, setPresenceMode] = useState<(typeof presenceOptions)[number]>("No website or limited presence");
-  const [leads, setLeads] = useState<Lead[]>(previewLeads);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [usingPreview, setUsingPreview] = useState(true);
+  const [usingPreview, setUsingPreview] = useState(false);
   const [query, setQuery] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(previewLeads[0]);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [faqOpen, setFaqOpen] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [jobRole, setJobRole] = useState("Product manager");
@@ -230,7 +156,6 @@ export default function Home() {
   }, [selectedJobId]);
 
   useEffect(() => {
-    if (!searched) return;
     setLeads([]);
     setSelectedLead(null);
     setUsingPreview(false);
@@ -281,59 +206,88 @@ export default function Home() {
     setIsSearching(true);
     setSearched(true);
     try {
-      const geoQuery = location.trim() ? `${location.trim()}, ${country}` : country;
+      const cityText = location.trim();
+      const geoQuery = cityText ? `${cityText}, ${country}` : country;
+      const geoParams: Record<string, string> = { q: geoQuery, format: "json", limit: "1" };
+      if (!cityText) geoParams.featuretype = "city";
       const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?` +
-        new URLSearchParams({ q: geoQuery, format: "json", limit: "1" }),
+        `https://nominatim.openstreetmap.org/search?` + new URLSearchParams(geoParams),
         { headers: { "Accept": "application/json" } },
       );
-      const geoData = (await geoRes.json()) as Array<{ lat: string; lng?: string; lon?: string; boundingbox?: string[] }>;
+      let geoData = (await geoRes.json()) as Array<{ lat: string; lng?: string; lon?: string; boundingbox?: string[]; type?: string }>;
+      if (!geoData.length && !cityText) {
+        const fallbackRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?` +
+          new URLSearchParams({ q: `capital city ${country}`, format: "json", limit: "1" }),
+          { headers: { "Accept": "application/json" } },
+        );
+        geoData = (await fallbackRes.json()) as typeof geoData;
+      }
       if (!geoData.length) {
-        toast.error("Could not locate that area. Try a different city or country name.");
+        const lastRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?` +
+          new URLSearchParams({ q: country, format: "json", limit: "1" }),
+          { headers: { "Accept": "application/json" } },
+        );
+        geoData = (await lastRes.json()) as typeof geoData;
+      }
+      if (!geoData.length) {
+        toast.error("Could not locate that area. Try adding a city name.");
         setIsSearching(false);
         return;
       }
       const center = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon || geoData[0].lng || "0") };
       const bbox = geoData[0].boundingbox;
-      const radius = bbox
-        ? Math.min(15000, Math.max(2000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000))
-        : 5000;
+      const isCountryLevel = !cityText && geoData[0].type !== "city" && geoData[0].type !== "town";
+      let radius: number;
+      if (isCountryLevel) {
+        radius = 25000;
+      } else if (bbox) {
+        radius = Math.min(30000, Math.max(3000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000));
+      } else {
+        radius = 8000;
+      }
 
       const aroundClause = `(around:${radius},${center.lat},${center.lng})`;
+      type TagFilter = string;
+      const makePair = (filter: TagFilter) => [
+        `node["name"]${filter}${aroundClause};`,
+        `way["name"]${filter}${aroundClause};`,
+      ];
       const categoryUnionMembers: string[] = (() => {
         switch (category) {
           case "Restaurant":
-            return [`node["name"]["amenity"~"restaurant|cafe|fast_food|bar"]${aroundClause};`];
+            return makePair('["amenity"~"restaurant|cafe|fast_food|bar"]');
           case "Home services":
             return [
-              `node["name"]["shop"~"hardware|furniture|doityourself"]${aroundClause};`,
-              `node["name"]["craft"]${aroundClause};`,
+              ...makePair('["shop"~"hardware|furniture|doityourself"]'),
+              ...makePair('["craft"]'),
             ];
           case "Beauty & wellness":
             return [
-              `node["name"]["shop"~"beauty|hairdresser|massage"]${aroundClause};`,
-              `node["name"]["amenity"~"beauty|spa"]${aroundClause};`,
+              ...makePair('["shop"~"beauty|hairdresser|massage"]'),
+              ...makePair('["amenity"~"beauty|spa"]'),
             ];
           case "Retail":
-            return [`node["name"]["shop"]${aroundClause};`];
+            return makePair('["shop"]');
           case "Auto services":
             return [
-              `node["name"]["shop"~"car_repair|car"]${aroundClause};`,
-              `node["name"]["amenity"~"car_wash|fuel"]${aroundClause};`,
+              ...makePair('["shop"~"car_repair|car"]'),
+              ...makePair('["amenity"~"car_wash|fuel"]'),
             ];
           case "Professional services":
-            return [`node["name"]["office"]${aroundClause};`];
+            return makePair('["office"]');
           default:
             return [
-              `node["name"]["shop"]${aroundClause};`,
-              `node["name"]["amenity"]${aroundClause};`,
-              `node["name"]["office"]${aroundClause};`,
-              `node["name"]["craft"]${aroundClause};`,
+              ...makePair('["shop"]'),
+              ...makePair('["amenity"~"restaurant|cafe|fast_food|bar|beauty|spa"]'),
+              ...makePair('["office"]'),
+              ...makePair('["craft"]'),
             ];
         }
       })();
 
-      const overpassQuery = `[out:json][timeout:15];(${categoryUnionMembers.join("")});out body 40;`;
+      const overpassQuery = `[out:json][timeout:25];(${categoryUnionMembers.join("")});out center body 50;`;
       const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
         method: "POST",
         body: `data=${encodeURIComponent(overpassQuery)}`,
@@ -342,14 +296,19 @@ export default function Home() {
       const overpassData = (await overpassRes.json()) as {
         elements: Array<{
           id: number;
-          lat: number;
-          lon: number;
+          type: string;
+          lat?: number;
+          lon?: number;
+          center?: { lat: number; lon: number };
           tags?: Record<string, string>;
         }>;
       };
 
       const nextLeads = overpassData.elements.reduce<Lead[]>((results, el) => {
         if (!el.tags?.name) return results;
+        const lat = el.lat ?? el.center?.lat;
+        const lon = el.lon ?? el.center?.lon;
+        if (lat === undefined || lon === undefined) return results;
         const tags = el.tags;
         const hasWebsite = !!(tags.website || tags["contact:website"] || tags.url);
         const hasPhone = !!(tags.phone || tags["contact:phone"]);
@@ -361,7 +320,7 @@ export default function Home() {
         if (!qualifies) return results;
         const businessType = tags.shop || tags.amenity || tags.office || tags.craft || category;
         results.push({
-          id: `osm-${el.id}`,
+          id: `osm-${el.type}-${el.id}`,
           name: tags.name,
           category: businessType.replaceAll("_", " "),
           location: [tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(", ") || marketLabel,
@@ -372,8 +331,8 @@ export default function Home() {
           hasWebsite,
           score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
           growthPath: "Review presence and propose next step",
-          position: { lat: el.lat, lng: el.lon },
-          source: `https://www.openstreetmap.org/node/${el.id}`,
+          position: { lat, lng: lon },
+          source: `https://www.openstreetmap.org/${el.type}/${el.id}`,
           presence: hasNoWebsite ? "No website listed" : "Limited public presence",
         });
         return results;
