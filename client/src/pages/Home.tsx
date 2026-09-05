@@ -109,7 +109,7 @@ const regionCenters: Record<MarketRegion, { lat: number; lng: number }> = {
 
 export default function Home() {
   const { isAuthenticated } = useAuth();
-  const [location, setLocation] = useState("Austin");
+  const [location, setLocation] = useState("");
   const [region, setRegion] = useState<MarketRegion>("Americas");
   const [country, setCountry] = useState("United States");
   const [category, setCategory] = useState("All local businesses");
@@ -145,7 +145,7 @@ export default function Home() {
   const freshnessMaxHours = jobFreshness === "24h" ? 24 : jobFreshness === "7d" ? 168 : 720;
   const freshnessLabel = jobFreshness === "24h" ? "24 hours" : jobFreshness === "7d" ? "7 days" : "30 days";
   const allJobs = hiringSearch.data?.jobs || [];
-  const jobs = allJobs.filter((job) => job.ageHours <= freshnessMaxHours);
+  const jobs = useMemo(() => allJobs.filter((job) => job.ageHours <= freshnessMaxHours), [allJobs, freshnessMaxHours]);
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || jobs[0];
 
   useEffect(() => {
@@ -211,41 +211,40 @@ export default function Home() {
     setSearched(true);
     try {
       const cityText = location.trim();
-      const geoQuery = cityText ? `${cityText}, ${country}` : country;
-      const geoParams: Record<string, string> = { q: geoQuery, format: "json", limit: "1" };
-      if (!cityText) geoParams.featuretype = "city";
-      const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?` + new URLSearchParams(geoParams),
-        { headers: { "Accept": "application/json" } },
-      );
-      let geoData = (await geoRes.json()) as Array<{ lat: string; lng?: string; lon?: string; boundingbox?: string[]; type?: string }>;
-      if (!geoData.length && !cityText) {
-        const fallbackRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?` +
-          new URLSearchParams({ q: `capital city ${country}`, format: "json", limit: "1" }),
-          { headers: { "Accept": "application/json" } },
+      type GeoResult = { lat: string; lng?: string; lon?: string; boundingbox?: string[]; type?: string; class?: string };
+      const nominatimSearch = async (params: Record<string, string>) => {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?` + new URLSearchParams({ ...params, format: "json", limit: "1" }),
+          { headers: { Accept: "application/json" } },
         );
-        geoData = (await fallbackRes.json()) as typeof geoData;
-      }
-      if (!geoData.length) {
-        const lastRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?` +
-          new URLSearchParams({ q: country, format: "json", limit: "1" }),
-          { headers: { "Accept": "application/json" } },
-        );
-        geoData = (await lastRes.json()) as typeof geoData;
+        if (!res.ok) return [];
+        return (await res.json()) as GeoResult[];
+      };
+
+      let geoData: GeoResult[] = [];
+      if (cityText) {
+        geoData = await nominatimSearch({ q: `${cityText}, ${country}` });
+        if (!geoData.length) geoData = await nominatimSearch({ q: cityText, countrycodes: "" });
+      } else {
+        geoData = await nominatimSearch({ q: country });
       }
       if (!geoData.length) {
         toast.error("Could not locate that area. Try adding a city name.");
         setIsSearching(false);
         return;
       }
-      const center = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon || geoData[0].lng || "0") };
-      const bbox = geoData[0].boundingbox;
-      const isCountryLevel = !cityText && geoData[0].type !== "city" && geoData[0].type !== "town";
+      const geo = geoData[0];
+      const center = { lat: parseFloat(geo.lat), lng: parseFloat(geo.lon || geo.lng || "0") };
+      if (Number.isNaN(center.lat) || Number.isNaN(center.lng)) {
+        toast.error("Could not locate that area. Try a different search.");
+        setIsSearching(false);
+        return;
+      }
+      const bbox = geo.boundingbox;
+      const isCountryLevel = !cityText || geo.class === "boundary" || geo.type === "country" || geo.type === "administrative";
       let radius: number;
       if (isCountryLevel) {
-        radius = 25000;
+        radius = 30000;
       } else if (bbox) {
         radius = Math.min(30000, Math.max(3000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000));
       } else {
@@ -536,7 +535,7 @@ export default function Home() {
                 <label className="field-label" htmlFor="hero-country">Country</label>
                 <div className="select-wrap">
                   <MapPin size={17} />
-                  <select id="hero-country" value={country} onChange={(event) => setCountry(event.target.value)}>
+                  <select id="hero-country" value={country} onChange={(event) => { setCountry(event.target.value); setLocation(""); }}>
                     {MARKET_COVERAGE[region].map((option) => <option key={option}>{option}</option>)}
                   </select>
                   <ChevronDown size={16} />
