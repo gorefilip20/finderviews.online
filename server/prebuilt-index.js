@@ -1066,6 +1066,18 @@ function serveStatic(app) {
   });
 }
 
+// Finderviews opportunity/profile persistence for Hostinger's runtime-only deployment
+var OPPORTUNITY_STORE_PATH = path2.resolve(import.meta.dirname, "urgent-opportunities.json");
+var PROFILE_STORE_PATH = path2.resolve(import.meta.dirname, "employer-profiles.json");
+async function readJsonStore(filePath, fallback) { try { if (!fs2.existsSync(filePath)) return fallback; return JSON.parse(await fs2.promises.readFile(filePath, "utf8")); } catch { return fallback; } }
+async function writeJsonStore(filePath, value) { await fs2.promises.writeFile(filePath, JSON.stringify(value, null, 2), "utf8"); }
+async function authenticateApiUser(req, res) { try { return await sdk.authenticateRequest(req); } catch { res.status(401).json({ error: "Sign in required" }); return null; } }
+function registerOpportunityRoutes(app) {
+  app.get("/api/opportunities", async (req, res) => { const now = Date.now(); const posts = await readJsonStore(OPPORTUNITY_STORE_PATH, []); const active = posts.filter((post) => !post.expiresAt || Date.parse(post.expiresAt) > now).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 100); res.json({ opportunities: active, refreshedAt: new Date().toISOString() }); });
+  app.post("/api/opportunities", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; const title = typeof body.title === "string" ? body.title.trim().slice(0, 160) : ""; const description = typeof body.description === "string" ? body.description.trim().slice(0, 900) : ""; if (!title || description.length < 10) return res.status(400).json({ error: "Title and a useful description are required" }); const posts = await readJsonStore(OPPORTUNITY_STORE_PATH, []); const post = { id: `urgent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title, description, role: typeof body.role === "string" ? body.role.trim().slice(0, 120) : "General opportunity", country: typeof body.country === "string" ? body.country.trim().slice(0, 80) : "", state: typeof body.state === "string" ? body.state.trim().slice(0, 100) : "", city: typeof body.city === "string" ? body.city.trim().slice(0, 100) : "", urgent: Boolean(body.urgent), sourceUrl: typeof body.sourceUrl === "string" && /^https:\/\//.test(body.sourceUrl) ? body.sourceUrl : "", postedBy: user.openId, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (body.urgent ? 48 : 168) * 60 * 60 * 1000).toISOString() }; posts.unshift(post); await writeJsonStore(OPPORTUNITY_STORE_PATH, posts.slice(0, 500)); res.status(201).json({ opportunity: post }); });
+  app.get("/api/employer-profile", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const profiles = await readJsonStore(PROFILE_STORE_PATH, {}); res.json({ profile: profiles[user.openId] || null }); });
+  app.put("/api/employer-profile", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; const profile = { companyName: typeof body.companyName === "string" ? body.companyName.trim().slice(0, 160) : "", companyDescription: typeof body.companyDescription === "string" ? body.companyDescription.trim().slice(0, 900) : "", website: typeof body.website === "string" && /^https:\/\//.test(body.website) ? body.website : "", contactEmail: typeof body.contactEmail === "string" ? body.contactEmail.trim().slice(0, 320) : "", updatedAt: new Date().toISOString() }; if (!profile.companyName || !/^\S+@\S+\.\S+$/.test(profile.contactEmail)) return res.status(400).json({ error: "Company name and valid contact email are required" }); const profiles = await readJsonStore(PROFILE_STORE_PATH, {}); profiles[user.openId] = profile; await writeJsonStore(PROFILE_STORE_PATH, profiles); res.json({ profile }); });
+}
 // server/_core/index.ts
 function isPortAvailable(port) {
   return new Promise((resolve) => {
@@ -1091,6 +1103,7 @@ async function startServer() {
   app.use(express2.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerOpportunityRoutes(app);
   app.use(
     "/api/trpc",
     createExpressMiddleware({

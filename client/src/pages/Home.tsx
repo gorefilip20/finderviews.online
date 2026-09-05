@@ -138,7 +138,15 @@ export default function Home() {
   const [jobAlertEnabled, setJobAlertEnabled] = useState(false);
   const [alertEmail, setAlertEmail] = useState("");
   const [communityText, setCommunityText] = useState("");
-  const [communityPosts, setCommunityPosts] = useState<Array<{ id: string; text: string; role: string; country: string; createdAt: string }>>([]);
+  const [opportunityTitle, setOpportunityTitle] = useState("");
+  const [urgentPost, setUrgentPost] = useState(false);
+  const [communityPosts, setCommunityPosts] = useState<Array<{ id: string; title?: string; description?: string; text?: string; role: string; country: string; state?: string; city?: string; urgent?: boolean; createdAt: string }>>([]);
+  const [locationDirectory, setLocationDirectory] = useState<Array<{ name: string; states?: Array<{ name: string }> }>>([]);
+  const [jobState, setJobState] = useState("");
+  const [jobCity, setJobCity] = useState("");
+  const [locationCities, setLocationCities] = useState<string[]>([]);
+  const [profile, setProfile] = useState({ companyName: "", companyDescription: "", website: "", contactEmail: "" });
+  const [profileSaved, setProfileSaved] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
 
@@ -148,6 +156,9 @@ export default function Home() {
     onSuccess: () => toast.success("Hiring brief prepared from the public job listing."),
     onError: () => toast.error("Finder could not prepare that brief just now. Please try again."),
   });
+  const selectedCountryLocation = locationDirectory.find((item) => item.name === jobCountry);
+  const availableStates = selectedCountryLocation?.states?.map((item) => item.name) || [];
+  const availableCities = locationCities;
   const freshnessMaxHours = jobFreshness === "24h" ? 24 : jobFreshness === "7d" ? 168 : 720;
   const freshnessLabel = jobFreshness === "24h" ? "24 hours" : jobFreshness === "7d" ? "7 days" : "30 days";
   const allJobs = hiringSearch.data?.jobs || [];
@@ -160,8 +171,34 @@ export default function Home() {
       if (savedAlert?.role) { setJobAlertEnabled(true); setAlertEmail(savedAlert.email || ""); }
       const savedPosts = JSON.parse(localStorage.getItem("finderviews-community-posts") || "[]");
       if (Array.isArray(savedPosts)) setCommunityPosts(savedPosts.slice(0, 12));
+      const savedProfile = JSON.parse(localStorage.getItem("finderviews-employer-profile") || "null");
+      if (savedProfile) setProfile(savedProfile);
     } catch { /* local storage can be unavailable in private browsing */ }
+    fetch("https://countriesnow.space/api/v0.1/countries/states").then((response) => response.ok ? response.json() : null).then((payload) => { if (Array.isArray(payload?.data)) setLocationDirectory(payload.data); }).catch(() => undefined);
+    const syncPosts = (event: StorageEvent) => { if (event.key === "finderviews-community-posts") { try { const next = JSON.parse(event.newValue || "[]"); if (Array.isArray(next)) setCommunityPosts(next.slice(0, 12)); } catch { /* ignore malformed local data */ } } };
+    window.addEventListener("storage", syncPosts);
+    return () => window.removeEventListener("storage", syncPosts);
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    const loadProfile = () => fetch("/api/employer-profile", { credentials: "include" }).then((response) => response.ok ? response.json() : null).then((payload) => { if (!cancelled && payload?.profile) { setProfile(payload.profile); setProfileSaved(true); } }).catch(() => undefined);
+    void loadProfile();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const refreshUrgent = () => fetch("/api/opportunities", { credentials: "include" }).then((response) => response.ok ? response.json() : null).then((payload) => { if (Array.isArray(payload?.opportunities)) setCommunityPosts(payload.opportunities.slice(0, 12)); }).catch(() => undefined);
+    void refreshUrgent();
+    const timer = window.setInterval(refreshUrgent, 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!jobCountry || !jobState) { setLocationCities([]); return; }
+    fetch("https://countriesnow.space/api/v0.1/countries/state/cities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: jobCountry, state: jobState }) }).then((response) => response.ok ? response.json() : null).then((payload) => { setLocationCities(Array.isArray(payload?.data) ? payload.data : []); }).catch(() => setLocationCities([]));
+  }, [jobCountry, jobState]);
 
   useEffect(() => {
     if (jobs.length > 0) setSelectedJobId(jobs[0].id);
@@ -445,15 +482,32 @@ export default function Home() {
     toast.success(`Alert saved for ${jobRole || "all roles"} in ${jobCountry}.`);
   };
 
-  const publishCommunityPost = () => {
+  const publishCommunityPost = async () => {
+    if (!isAuthenticated) { toast.message("Sign in before publishing an opportunity."); startLogin(); return; }
     const text = communityText.trim();
-    if (text.length < 10) { toast.error("Add at least 10 characters so the community can understand the opportunity."); return; }
-    const nextPost = { id: `post-${Date.now()}`, text, role: jobRole || "All roles", country: jobCountry, createdAt: new Date().toISOString() };
-    const nextPosts = [nextPost, ...communityPosts].slice(0, 12);
-    setCommunityPosts(nextPosts);
-    localStorage.setItem("finderviews-community-posts", JSON.stringify(nextPosts));
-    setCommunityText("");
-    toast.success("Opportunity shared with this browser's local board.");
+    const title = opportunityTitle.trim();
+    if (title.length < 4 || text.length < 10) { toast.error("Add a short title and at least 10 characters of useful detail."); return; }
+    try {
+      const response = await fetch("/api/opportunities", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, description: text, role: jobRole || "All roles", country: jobCountry, state: jobState, city: jobCity, urgent: urgentPost }) });
+      if (!response.ok) throw new Error("publish failed");
+      const payload = await response.json();
+      if (payload.opportunity) setCommunityPosts((current) => [payload.opportunity, ...current].slice(0, 12));
+      setOpportunityTitle(""); setCommunityText(""); setUrgentPost(false);
+      toast.success(urgentPost ? "Urgent opportunity published to the live board." : "Opportunity published to the live board.");
+    } catch { toast.error("The opportunity could not be published. Please try again."); }
+  };
+
+  const saveEmployerProfile = async () => {
+    if (!isAuthenticated) { toast.message("Sign in to manage your employer profile."); startLogin(); return; }
+    if (!profile.companyName.trim() || !profile.contactEmail.trim()) { toast.error("Company name and contact email are required."); return; }
+    try {
+      const response = await fetch("/api/employer-profile", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
+      if (!response.ok) throw new Error("profile save failed");
+      const payload = await response.json();
+      if (payload.profile) setProfile(payload.profile);
+      setProfileSaved(true);
+      toast.success("Employer profile saved securely for your account.");
+    } catch { toast.error("The employer profile could not be saved. Please try again."); }
   };
 
   const requestHiringBrief = () => {
@@ -533,6 +587,7 @@ export default function Home() {
           <button onClick={() => scrollTo("finder-workspace")}>Explore leads</button>
           <button onClick={() => scrollTo("hiring-workspace")}>Hiring signals</button>
           <button onClick={() => scrollTo("community-board")}>Opportunity board</button>
+          <button onClick={() => scrollTo("employer-profile")}>Employer profile</button>
           <button onClick={() => scrollTo("growth-path")}>Growth outcomes</button>
           <button onClick={() => scrollTo("faq")}>FAQ</button>
         </nav>
@@ -740,7 +795,9 @@ export default function Home() {
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
               <label><span>ELIGIBLE REGION</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRegion} onChange={(event) => { const nextRegion = event.target.value as MarketRegion; setJobRegion(nextRegion); setJobCountry(MARKET_COVERAGE[nextRegion][0]); }}>{SUPPORTED_REGIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
-              <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => setJobCountry(event.target.value)}>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => { setJobCountry(event.target.value); setJobState(""); setJobCity(""); }}>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>STATE / PROVINCE</span><div className="hiring-select"><MapPin size={16} /><select value={jobState} onChange={(event) => { setJobState(event.target.value); setJobCity(""); }} disabled={availableStates.length === 0}><option value="">{availableStates.length ? "All states / provinces" : "Loading states…"}</option>{availableStates.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>CITY</span><div className="hiring-select"><MapPin size={16} /><select value={jobCity} onChange={(event) => setJobCity(event.target.value)} disabled={availableCities.length === 0}><option value="">{availableCities.length ? "All cities" : "Select a state first"}</option>{availableCities.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>POSTED WITHIN</span><div className="hiring-select"><CalendarDays size={16} /><select value={jobFreshness} onChange={(event) => setJobFreshness(event.target.value as typeof jobFreshness)}><option value="24h">Today (24 hours)</option><option value="7d">This week (7 days)</option><option value="30d">Last 30 days</option></select><ChevronDown size={15} /></div></label>
               <button className="hiring-search-button" onClick={runHiringSearch} disabled={hiringSearch.isFetching}>{hiringSearch.isFetching ? <><LoaderCircle className="spin" size={17} /> Sourcing roles</> : <><Search size={17} /> Search fresh roles</>}</button>
             </div>
@@ -776,7 +833,9 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="community-section" id="community-board"><div className="community-head"><div><span className="section-number">03B / OPPORTUNITY BOARD</span><h2>Local signals are<br /><em>stronger together.</em></h2></div><p>Share a public job lead, hiring tip, or service opportunity with people exploring the same market. Posts stay in this browser until a moderated community backend is connected.</p></div><div className="community-grid"><div className="community-compose"><span>SHARE A PUBLIC OPPORTUNITY</span><textarea value={communityText} onChange={(event) => setCommunityText(event.target.value)} placeholder="Example: A café in Austin is hiring weekend staff — public listing linked in the job details." maxLength={500} /><div><small>{communityText.length}/500 · {jobCountry}</small><button className="button-dark" onClick={publishCommunityPost}>Share signal <ArrowUpRight size={16} /></button></div></div><div className="community-feed">{communityPosts.length === 0 ? <div className="community-empty"><UsersRound size={25} /><strong>No local signals yet.</strong><span>Be the first to share a useful, public opportunity.</span></div> : communityPosts.map((post) => <article className="community-post" key={post.id}><div><span className="signal-dot" /><small>{post.role} · {post.country}</small></div><p>{post.text}</p><time>{new Date(post.createdAt).toLocaleDateString()}</time></article>)}</div></div></section>
+        <section className="community-section" id="community-board"><div className="community-head"><div><span className="section-number">03B / OPPORTUNITY BOARD</span><h2>Local signals are<br /><em>stronger together.</em></h2></div><p>Employers and community members can publish a public opportunity. Urgent posts appear in the live board for 48 hours and the board refreshes every 15 seconds.</p></div><div className="community-grid"><div className="community-compose"><span>SHARE A PUBLIC OPPORTUNITY</span><label className="urgent-toggle"><input type="checkbox" checked={urgentPost} onChange={(event) => setUrgentPost(event.target.checked)} /> I need someone urgently</label><input className="opportunity-title" value={opportunityTitle} onChange={(event) => setOpportunityTitle(event.target.value)} placeholder="Opportunity title, e.g. Weekend barista needed now" maxLength={160} /><textarea value={communityText} onChange={(event) => setCommunityText(event.target.value)} placeholder="Example: A café in Austin is hiring weekend staff — public listing linked in the job details." maxLength={500} /><div><small>{communityText.length}/500 · {[jobCity, jobState, jobCountry].filter(Boolean).join(", ")}</small><button className="button-dark" onClick={publishCommunityPost}>Publish signal <ArrowUpRight size={16} /></button></div></div><div className="community-feed">{communityPosts.length === 0 ? <div className="community-empty"><UsersRound size={25} /><strong>No local signals yet.</strong><span>Be the first to share a useful, public opportunity.</span></div> : communityPosts.map((post) => <article className="community-post" key={post.id}><div><span className="signal-dot" /><small>{post.urgent ? "URGENT · " : ""}{post.role} · {[post.city, post.state, post.country].filter(Boolean).join(", ")}</small></div><strong className="community-post__title">{post.title || post.role}</strong><p>{post.text || post.description}</p><time>{new Date(post.createdAt).toLocaleDateString()}</time></article>)}</div></div></section>
+
+        <section className="employer-section" id="employer-profile"><div className="employer-head"><div><span className="section-number">03C / EMPLOYER PROFILE</span><h2>Be ready when<br /><em>people respond.</em></h2></div><p>Create a clear public employer identity for urgent listings and hiring conversations. Sign-in is required before publishing as an employer.</p></div><div className="employer-card"><div className="employer-status"><span className="signal-dot" /> {isAuthenticated ? "SIGNED IN · PROFILE MANAGEMENT ENABLED" : "SIGN IN REQUIRED TO MANAGE PROFILE"}</div><div className="employer-fields"><label><span>COMPANY NAME</span><input value={profile.companyName} onChange={(event) => setProfile({ ...profile, companyName: event.target.value })} placeholder="Your company or team" /></label><label><span>CONTACT EMAIL</span><input value={profile.contactEmail} onChange={(event) => setProfile({ ...profile, contactEmail: event.target.value })} placeholder="hiring@company.com" type="email" /></label><label><span>PUBLIC WEBSITE</span><input value={profile.website} onChange={(event) => setProfile({ ...profile, website: event.target.value })} placeholder="https://" type="url" /></label><label className="employer-fields__wide"><span>ABOUT THE EMPLOYER</span><textarea value={profile.companyDescription} onChange={(event) => setProfile({ ...profile, companyDescription: event.target.value })} placeholder="What does your team do, and who should apply?" maxLength={700} /></label></div><div className="employer-actions"><small>{profileSaved ? "Saved on this device" : "Keep details accurate and public-facing."}</small><button className="button-dark" onClick={saveEmployerProfile}>{isAuthenticated ? "Save employer profile" : "Sign in to continue"} <ArrowUpRight size={16} /></button></div></div></section>
 
         <section className="growth-section" id="growth-path">
           <div className="growth-image" aria-label="A styled small-business growth concept image" />
