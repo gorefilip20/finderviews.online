@@ -12,6 +12,8 @@ import { trpc } from "@/lib/trpc";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Bell,
+  BellRing,
   BriefcaseBusiness,
   Building2,
   CalendarDays,
@@ -133,11 +135,15 @@ export default function Home() {
   const [publicCompanyContact, setPublicCompanyContact] = useState<PublicCompanyContact | null>(null);
   const [isLookingUpCompanyContact, setIsLookingUpCompanyContact] = useState(false);
   const [companyContactLookupComplete, setCompanyContactLookupComplete] = useState(false);
+  const [jobAlertEnabled, setJobAlertEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+  const [communityText, setCommunityText] = useState("");
+  const [communityPosts, setCommunityPosts] = useState<Array<{ id: string; text: string; role: string; country: string; createdAt: string }>>([]);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
 
   const jobSearchInput = useMemo(() => ({ role: jobRole || "All hiring roles", country: jobCountry, region: jobRegion }), [jobCountry, jobRegion, jobRole]);
-  const hiringSearch = trpc.hiring.search.useQuery(jobSearchInput, { enabled: jobSearchRequested, retry: false, refetchOnWindowFocus: false });
+  const hiringSearch = trpc.hiring.search.useQuery(jobSearchInput, { enabled: jobSearchRequested, retry: false, refetchOnWindowFocus: false, refetchInterval: jobAlertEnabled ? 30 * 60 * 1000 : false });
   const hiringBrief = trpc.hiring.brief.useMutation({
     onSuccess: () => toast.success("Hiring brief prepared from the public job listing."),
     onError: () => toast.error("Finder could not prepare that brief just now. Please try again."),
@@ -147,6 +153,15 @@ export default function Home() {
   const allJobs = hiringSearch.data?.jobs || [];
   const jobs = allJobs.filter((job) => job.ageHours <= freshnessMaxHours);
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || jobs[0];
+
+  useEffect(() => {
+    try {
+      const savedAlert = JSON.parse(localStorage.getItem("finderviews-job-alert") || "null");
+      if (savedAlert?.role) { setJobAlertEnabled(true); setAlertEmail(savedAlert.email || ""); }
+      const savedPosts = JSON.parse(localStorage.getItem("finderviews-community-posts") || "[]");
+      if (Array.isArray(savedPosts)) setCommunityPosts(savedPosts.slice(0, 12));
+    } catch { /* local storage can be unavailable in private browsing */ }
+  }, []);
 
   useEffect(() => {
     if (jobs.length > 0) setSelectedJobId(jobs[0].id);
@@ -410,6 +425,37 @@ export default function Home() {
     void hiringSearch.refetch();
   };
 
+  const toggleJobAlert = async () => {
+    if (jobAlertEnabled) {
+      localStorage.removeItem("finderviews-job-alert");
+      setJobAlertEnabled(false);
+      toast.message("Job alert paused for this search.");
+      return;
+    }
+    const email = alertEmail.trim();
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+      toast.error("Enter a valid email address or leave it blank for browser alerts.");
+      return;
+    }
+    localStorage.setItem("finderviews-job-alert", JSON.stringify({ role: jobRole, country: jobCountry, region: jobRegion, email, createdAt: new Date().toISOString() }));
+    setJobAlertEnabled(true);
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch { /* browser may block permission prompts */ }
+    }
+    toast.success(`Alert saved for ${jobRole || "all roles"} in ${jobCountry}.`);
+  };
+
+  const publishCommunityPost = () => {
+    const text = communityText.trim();
+    if (text.length < 10) { toast.error("Add at least 10 characters so the community can understand the opportunity."); return; }
+    const nextPost = { id: `post-${Date.now()}`, text, role: jobRole || "All roles", country: jobCountry, createdAt: new Date().toISOString() };
+    const nextPosts = [nextPost, ...communityPosts].slice(0, 12);
+    setCommunityPosts(nextPosts);
+    localStorage.setItem("finderviews-community-posts", JSON.stringify(nextPosts));
+    setCommunityText("");
+    toast.success("Opportunity shared with this browser's local board.");
+  };
+
   const requestHiringBrief = () => {
     if (!selectedJob) return;
     if (!isAuthenticated) {
@@ -486,6 +532,7 @@ export default function Home() {
           <button onClick={() => scrollTo("how-it-works")}>How it works</button>
           <button onClick={() => scrollTo("finder-workspace")}>Explore leads</button>
           <button onClick={() => scrollTo("hiring-workspace")}>Hiring signals</button>
+          <button onClick={() => scrollTo("community-board")}>Opportunity board</button>
           <button onClick={() => scrollTo("growth-path")}>Growth outcomes</button>
           <button onClick={() => scrollTo("faq")}>FAQ</button>
         </nav>
@@ -698,7 +745,8 @@ export default function Home() {
               <button className="hiring-search-button" onClick={runHiringSearch} disabled={hiringSearch.isFetching}>{hiringSearch.isFetching ? <><LoaderCircle className="spin" size={17} /> Sourcing roles</> : <><Search size={17} /> Search fresh roles</>}</button>
             </div>
             <div className="role-suggestions"><span>EXPLORE:</span>{hiringRoleSuggestions.map((role) => <button key={role} onClick={() => setJobRole(role)} className={cn(jobRole.toLowerCase() === role.toLowerCase() && "role-suggestion--active")}>{role}</button>)}</div>
-            <p className="hiring-source-note"><CircleHelp size={14} /> Live source: Jobicy. Results filtered to the last {freshnessLabel}. Finderviews applies a direct country filter where Jobicy supports one, otherwise its documented regional filter; every result shows its source geography.</p>
+            <p className="hiring-source-note"><CircleHelp size={14} /> Live sources: Jobicy plus a public fallback feed. Results are filtered to the last {freshnessLabel}; every result keeps its original source link and geography.</p>
+            <div className="job-alert-card"><div className="job-alert-card__copy"><span className="job-alert-card__icon">{jobAlertEnabled ? <BellRing size={18} /> : <Bell size={18} />}</span><div><strong>{jobAlertEnabled ? "Alert is active for this search" : "Never miss a fresh hiring signal"}</strong><span>Save this role and market. Finder remembers the search and can request browser permission for notifications.</span></div></div><div className="job-alert-card__actions"><input value={alertEmail} onChange={(event) => setAlertEmail(event.target.value)} placeholder="Email (optional)" type="email" aria-label="Optional alert email" /><button onClick={toggleJobAlert}>{jobAlertEnabled ? "Pause alert" : "Create alert"}</button></div></div>
           </div>
 
           <div className="hiring-body">
@@ -727,6 +775,8 @@ export default function Home() {
             </aside>
           </div>
         </section>
+
+        <section className="community-section" id="community-board"><div className="community-head"><div><span className="section-number">03B / OPPORTUNITY BOARD</span><h2>Local signals are<br /><em>stronger together.</em></h2></div><p>Share a public job lead, hiring tip, or service opportunity with people exploring the same market. Posts stay in this browser until a moderated community backend is connected.</p></div><div className="community-grid"><div className="community-compose"><span>SHARE A PUBLIC OPPORTUNITY</span><textarea value={communityText} onChange={(event) => setCommunityText(event.target.value)} placeholder="Example: A café in Austin is hiring weekend staff — public listing linked in the job details." maxLength={500} /><div><small>{communityText.length}/500 · {jobCountry}</small><button className="button-dark" onClick={publishCommunityPost}>Share signal <ArrowUpRight size={16} /></button></div></div><div className="community-feed">{communityPosts.length === 0 ? <div className="community-empty"><UsersRound size={25} /><strong>No local signals yet.</strong><span>Be the first to share a useful, public opportunity.</span></div> : communityPosts.map((post) => <article className="community-post" key={post.id}><div><span className="signal-dot" /><small>{post.role} · {post.country}</small></div><p>{post.text}</p><time>{new Date(post.createdAt).toLocaleDateString()}</time></article>)}</div></div></section>
 
         <section className="growth-section" id="growth-path">
           <div className="growth-image" aria-label="A styled small-business growth concept image" />

@@ -59,7 +59,7 @@ export type FreshJob = {
   postedAt: string;
   ageHours: number;
   sourceUrl: string;
-  sourceName: typeof JOBICY_SOURCE_NAME;
+  sourceName: string;
   salary?: string;
   contactStatus: string;
 };
@@ -191,10 +191,35 @@ export function matchesRequestedRole(job: FreshJob, requestedRole: string) {
 async function fetchJobicy(params: URLSearchParams): Promise<FreshJob[]> {
   const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
     headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" },
+    signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) return [];
   const payload = (await response.json()) as JobicyResponse;
   return mapFreshJobs(payload.jobs || []);
+}
+
+type ArbeitnowJob = { slug?: string; title?: string; company_name?: string; location?: string; description?: string; url?: string; created_at?: number | string; remote?: boolean; tags?: string[] };
+type ArbeitnowResponse = { data?: ArbeitnowJob[] };
+const ARBEITNOW_SOURCE_NAME = "Arbeitnow";
+const ARBEITNOW_SOURCE_URL = "https://www.arbeitnow.com/api/job-board-api";
+function mapArbeitnowJob(job: ArbeitnowJob, now = Date.now()): FreshJob | null {
+  if (!job.title || !job.company_name || !job.created_at) return null;
+  const createdMs = typeof job.created_at === "number" ? (job.created_at < 10_000_000_000 ? job.created_at * 1000 : job.created_at) : Date.parse(job.created_at);
+  if (!Number.isFinite(createdMs)) return null;
+  const ageMs = now - createdMs;
+  if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const description = stripMarkup(job.description).slice(0, 7000);
+  return { id: `arbeitnow-${job.slug || `${job.company_name}-${job.title}`}`, title: stripMarkup(job.title), company: stripMarkup(job.company_name), geography: stripMarkup(job.location) || (job.remote ? "Remote" : "Not specified"), industry: (job.tags || []).map(stripMarkup).filter(Boolean).slice(0, 8), jobType: [], level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(createdMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.url), sourceName: ARBEITNOW_SOURCE_NAME, contactStatus: "Use the original public listing to apply or verify a company contact." };
+}
+async function fetchArbeitnow(): Promise<FreshJob[]> {
+  const response = await fetch(ARBEITNOW_SOURCE_URL, { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) });
+  if (!response.ok) return [];
+  const payload = (await response.json()) as ArbeitnowResponse;
+  return (payload.data || []).map((job) => mapArbeitnowJob(job)).filter((job): job is FreshJob => job !== null);
+}
+function dedupeJobs(jobs: FreshJob[]) {
+  const seen = new Set<string>();
+  return jobs.filter((job) => { const key = `${job.company.toLowerCase()}|${job.title.toLowerCase()}|${job.sourceUrl}`; if (seen.has(key)) return false; seen.add(key); return true; });
 }
 
 export async function searchFreshJobs(input: FreshJobSearchInput) {
@@ -204,6 +229,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   const count = String(Math.min(Math.max(input.limit || 50, 1), 60));
 
   let jobs: FreshJob[] = [];
+  let fallbackJobs: FreshJob[] = [];
   try {
     if (hasRole) {
       const tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role });
@@ -220,11 +246,22 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
       jobs = hasRole ? regionJobs.filter((job) => matchesRequestedRole(job, role)) : regionJobs;
     }
   } catch {
-    // network failure — return empty results gracefully
+    // Continue to the independent public fallback below.
   }
+  try {
+    const publicJobs = await fetchArbeitnow();
+    fallbackJobs = hasRole ? publicJobs.filter((job) => matchesRequestedRole(job, role)) : publicJobs;
+    const countryNeedle = input.country.toLowerCase();
+    const regionNeedles = input.region === "Europe" ? ["germany", "uk", "united kingdom", "france", "netherlands", "europe"] : input.region === "Asia" ? ["asia", "india", "japan", "singapore", "remote"] : ["usa", "united states", "canada", "brazil", "latam", "remote"];
+    const scopedFallback = fallbackJobs.filter((job) => { const text = job.geography.toLowerCase(); return text.includes(countryNeedle) || regionNeedles.some((needle) => text.includes(needle)); });
+    fallbackJobs = scopedFallback.length > 0 ? scopedFallback : fallbackJobs;
+  } catch {
+    // Both feeds may be temporarily unavailable; return the best result collected.
+  }
+  jobs = dedupeJobs([...jobs, ...fallbackJobs]).slice(0, Math.min(Math.max(input.limit || 50, 1), 100));
   return {
     jobs,
-    sourceName: JOBICY_SOURCE_NAME,
+    sourceName: jobs.length > 0 ? [...new Set(jobs.map((job) => job.sourceName))].join(" + ") : `${JOBICY_SOURCE_NAME} + ${ARBEITNOW_SOURCE_NAME}`,
     sourceUrl: JOBICY_SOURCE_URL,
     freshnessDays: MAX_JOB_AGE_DAYS,
     countryFilterApplied: geoScope.scope === "country",
