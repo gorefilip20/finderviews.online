@@ -61,17 +61,10 @@ type Lead = {
   presence: "No website listed" | "Limited public presence";
 };
 
-type PublicCompanyContact = {
-  phone?: string;
-  website?: string;
-  address?: string;
-  listingUrl?: string;
-};
-
 
 const categories = ["All local businesses", "Restaurant", "Home services", "Beauty & wellness", "Retail", "Auto services", "Professional services"];
 const presenceOptions = ["No website or limited presence", "No listed website", "Limited public presence"] as const;
-const hiringRoleSuggestions = ["Product manager", "Social media growth", "Web developer", "Content writer", "Copywriter", "Co-founder", "Online presence", "Biochemist", "Drug development scientist", "Skincare brand manager", "Funeral services manager"];
+const hiringRoleSuggestions = ["AI engineer", "Software engineer", "Data scientist", "Web developer", "Product manager", "Designer", "Marketing", "Sales", "Content writer", "Developer", "Customer support", "Co-founder"];
 
 const faqs = [
   {
@@ -111,7 +104,7 @@ const regionCenters: Record<MarketRegion, { lat: number; lng: number }> = {
 
 export default function Home() {
   const { isAuthenticated } = useAuth();
-  const [location, setLocation] = useState("Austin");
+  const [location, setLocation] = useState("");
   const [region, setRegion] = useState<MarketRegion>("Americas");
   const [country, setCountry] = useState("United States");
   const [category, setCategory] = useState("All local businesses");
@@ -132,9 +125,6 @@ export default function Home() {
   const [jobSearchRequested, setJobSearchRequested] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [approvedBriefFor, setApprovedBriefFor] = useState<string | null>(null);
-  const [publicCompanyContact, setPublicCompanyContact] = useState<PublicCompanyContact | null>(null);
-  const [isLookingUpCompanyContact, setIsLookingUpCompanyContact] = useState(false);
-  const [companyContactLookupComplete, setCompanyContactLookupComplete] = useState(false);
   const [jobAlertEnabled, setJobAlertEnabled] = useState(false);
   const [alertEmail, setAlertEmail] = useState("");
   const [communityText, setCommunityText] = useState("");
@@ -207,8 +197,6 @@ export default function Home() {
 
   useEffect(() => {
     setApprovedBriefFor(null);
-    setPublicCompanyContact(null);
-    setCompanyContactLookupComplete(false);
   }, [selectedJobId]);
 
   useEffect(() => {
@@ -531,48 +519,6 @@ export default function Home() {
     });
   };
 
-  const lookUpPublicCompanyContact = async () => {
-    if (!selectedJob) return;
-    setIsLookingUpCompanyContact(true);
-    setCompanyContactLookupComplete(false);
-    try {
-      const sourceLocation = selectedJob.geography && selectedJob.geography !== "Anywhere" ? selectedJob.geography : jobCountry;
-      const searchQuery = `${selectedJob.company} ${sourceLocation}`;
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?` +
-        new URLSearchParams({ q: searchQuery, format: "json", limit: "1", addressdetails: "1", extratags: "1" }),
-        { headers: { "Accept": "application/json" } },
-      );
-      const data = (await res.json()) as Array<{
-        display_name?: string;
-        lat?: string;
-        lon?: string;
-        osm_type?: string;
-        osm_id?: number;
-        extratags?: Record<string, string>;
-      }>;
-      const item = data[0];
-      if (item) {
-        const tags = item.extratags || {};
-        setPublicCompanyContact({
-          phone: tags.phone || tags["contact:phone"] || undefined,
-          website: tags.website || tags["contact:website"] || undefined,
-          address: item.display_name || undefined,
-          listingUrl: item.osm_type && item.osm_id
-            ? `https://www.openstreetmap.org/${item.osm_type}/${item.osm_id}`
-            : undefined,
-        });
-      } else {
-        setPublicCompanyContact(null);
-      }
-      setCompanyContactLookupComplete(true);
-    } catch {
-      setCompanyContactLookupComplete(true);
-      toast.error("Finderviews could not retrieve a public company contact record right now.");
-    } finally {
-      setIsLookingUpCompanyContact(false);
-    }
-  };
 
   return (
     <div className="finder-shell">
@@ -824,8 +770,7 @@ export default function Home() {
                 <h3>{selectedJob.title}</h3>
                 <p>{selectedJob.excerpt || "This fresh listing signals a current hiring need. Review the public source before reaching out."}</p>
                 <div className="hiring-detail-facts"><div><MapPin size={16} /><span><small>SOURCE GEOGRAPHY</small>{selectedJob.geography}</span></div><div><BriefcaseBusiness size={16} /><span><small>ROLE TYPE</small>{selectedJob.jobType.join(" · ") || "Not specified"}</span></div>{selectedJob.salary && <div><Target size={16} /><span><small>LISTED RANGE</small>{selectedJob.salary}</span></div>}</div>
-                <div className="public-contact-card"><Phone size={16} /><div><small>PUBLIC CONTACT CONTEXT</small><strong>{publicCompanyContact ? "Public company record found" : companyContactLookupComplete ? "No public company record found in this lookup" : "Look up a public company record before outreach"}</strong></div><button onClick={lookUpPublicCompanyContact} disabled={isLookingUpCompanyContact}>{isLookingUpCompanyContact ? <LoaderCircle className="spin" size={15} /> : <Search size={15} />}{isLookingUpCompanyContact ? "Looking up" : "Find public contact"}</button></div>
-                {publicCompanyContact && <div className="company-contact-results"><div><small>PUBLIC PHONE</small>{publicCompanyContact.phone ? <a href={`tel:${publicCompanyContact.phone}`}>{publicCompanyContact.phone}</a> : <span>Not listed</span>}</div><div><small>COMPANY WEBSITE</small>{publicCompanyContact.website ? <a href={publicCompanyContact.website} target="_blank" rel="noreferrer">Open public website <ExternalLink size={12} /></a> : <span>Not listed</span>}</div>{publicCompanyContact.address && <div><small>PUBLIC ADDRESS</small><span>{publicCompanyContact.address}</span></div>}{publicCompanyContact.listingUrl && <a className="public-listing-link" href={publicCompanyContact.listingUrl} target="_blank" rel="noreferrer">Open public listing <ExternalLink size={12} /></a>}</div>}
+                {(selectedJob.companyWebsite || selectedJob.applyEmail) && <div className="company-contact-results"><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <span>Not listed</span>}</div>{selectedJob.applyEmail && <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div>}</div>}
                 <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">View public job <ExternalLink size={16} /></a><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
