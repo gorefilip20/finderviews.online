@@ -897,7 +897,19 @@ var ROLE_ALIASES = {
   "drug development scientist": ["drug development", "scientist", "biomedical"],
   "cosmetics operations manager": ["cosmetics", "cosmetic", "skincare", "beauty", "operations manager"],
   "skincare brand manager": ["skincare", "beauty", "cosmetics", "brand manager"],
-  "funeral services manager": ["funeral", "burial", "mortuary", "cemetery"]
+  "funeral services manager": ["funeral", "burial", "mortuary", "cemetery"],
+  "ai engineer": ["ai ", " ai", "artificial intelligence", "machine learning", "ml engineer", "deep learning", "llm", "generative ai", "prompt engineer", "ai/ml"],
+  "ai": ["ai ", " ai", "artificial intelligence", "machine learning", "ml engineer", "deep learning", "llm", "generative ai", "prompt engineer", "ai/ml", "data scientist", "computer vision", "nlp", "natural language"],
+  "data scientist": ["data scientist", "data science", "data analyst", "data engineer", "analytics engineer", "machine learning"],
+  "software engineer": ["software engineer", "software developer", "backend", "back-end", "full stack", "full-stack", "devops", "sre", "developer", "programmer", "engineer"],
+  designer: ["designer", "ux designer", "ui designer", "graphic designer", "visual designer", "ux/ui", "product designer"],
+  marketing: ["marketing", "digital marketing", "growth", "seo", "ppc", "brand", "content marketing"],
+  sales: ["sales", "business development", "account executive", "account manager", "revenue"],
+  "customer support": ["customer support", "customer success", "customer service", "support engineer", "technical support"],
+  "project manager": ["project manager", "program manager", "scrum master", "agile", "delivery manager"],
+  finance: ["finance", "accountant", "accounting", "financial analyst", "bookkeeper", "controller"],
+  "human resources": ["human resources", "hr ", " hr", "recruiter", "talent acquisition", "people operations"],
+  developer: ["developer", "programmer", "engineer", "coder", "software"]
 };
 var countryToJobicyGeo = {
   "United States": "usa",
@@ -959,6 +971,29 @@ function formatSalary(job) {
 function asSafeSourceUrl(value) {
   return value && /^https:\/\//i.test(value) ? value : JOBICY_SOURCE_URL;
 }
+var JOB_BOARD_DOMAINS = ["jobicy.com", "linkedin.com", "indeed.com", "glassdoor.com", "lever.co", "greenhouse.io", "workable.com", "recruitee.com", "breezy.hr", "smartrecruiters.com", "ashbyhq.com", "workday.com", "icims.com", "taleo.net", "myworkdayjobs.com", "bamboohr.com", "ultipro.com"];
+function extractCompanyWebsite(text) {
+  var urlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:\/[^\s<>"')}\]]*)?/gi;
+  var match;
+  while ((match = urlRegex.exec(text)) !== null) {
+    var domain = match[1].toLowerCase();
+    if (!JOB_BOARD_DOMAINS.some(function(jb) { return domain.includes(jb); })) {
+      return match[0].replace(/[.,;:!?)}\]]+$/, "");
+    }
+  }
+  return void 0;
+}
+function extractApplyEmail(text) {
+  var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  var found = text.match(emailRegex);
+  if (!found) return void 0;
+  var dominated = ["noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "notifications", "unsubscribe"];
+  for (var i = 0; i < found.length; i++) {
+    var local = found[i].split("@")[0].toLowerCase();
+    if (!dominated.some(function(d) { return local.includes(d); })) return found[i];
+  }
+  return void 0;
+}
 function mapFreshJob(job, now = Date.now()) {
   if (!job.pubDate || !job.jobTitle || !job.companyName) return null;
   const publishedAt = new Date(job.pubDate);
@@ -966,6 +1001,8 @@ function mapFreshJob(job, now = Date.now()) {
   if (Number.isNaN(publishedAtMs)) return null;
   const rawAgeMs = now - publishedAtMs;
   if (rawAgeMs > MAX_JOB_AGE_MS || rawAgeMs < -12 * 60 * 60 * 1e3) return null;
+  const rawDescription = job.jobDescription || "";
+  const cleanDescription = stripMarkup(rawDescription).slice(0, 7e3);
   return {
     id: String(job.id || `${job.companyName}-${job.jobTitle}-${job.pubDate}`),
     title: stripMarkup(job.jobTitle),
@@ -976,13 +1013,15 @@ function mapFreshJob(job, now = Date.now()) {
     jobType: Array.isArray(job.jobType) ? job.jobType.map(stripMarkup).filter(Boolean) : [],
     level: stripMarkup(job.jobLevel) || "Not specified",
     excerpt: stripMarkup(job.jobExcerpt).slice(0, 480),
-    description: stripMarkup(job.jobDescription).slice(0, 7e3),
+    description: cleanDescription,
     postedAt: publishedAt.toISOString(),
     ageHours: Math.max(0, Math.floor(rawAgeMs / (60 * 60 * 1e3))),
     sourceUrl: asSafeSourceUrl(job.url),
     sourceName: JOBICY_SOURCE_NAME,
     salary: formatSalary(job),
-    contactStatus: "Use the public source listing or verify a company contact before outreach."
+    contactStatus: "Use the public source listing or verify a company contact before outreach.",
+    companyWebsite: extractCompanyWebsite(rawDescription),
+    applyEmail: extractApplyEmail(rawDescription)
   };
 }
 function mapFreshJobs(jobs, now = Date.now()) {
@@ -991,7 +1030,7 @@ function mapFreshJobs(jobs, now = Date.now()) {
 function matchesRequestedRole(job, requestedRole) {
   const normalizedRole = requestedRole.trim().toLowerCase();
   if (!normalizedRole || normalizedRole === "all hiring roles") return true;
-  const searchable = `${job.title} ${job.excerpt}`.toLowerCase();
+  const searchable = `${job.title} ${job.excerpt} ${job.description}`.toLowerCase();
   const aliases = ROLE_ALIASES[normalizedRole] || [normalizedRole];
   return aliases.some((alias) => searchable.includes(alias));
 }
@@ -1023,6 +1062,11 @@ async function searchFreshJobs(input) {
       const regionParams = new URLSearchParams({ count, geo: regionToJobicyGeo[input.region] });
       const regionJobs = await fetchJobicy(regionParams);
       jobs = hasRole ? regionJobs.filter((job) => matchesRequestedRole(job, role)) : regionJobs;
+    }
+    if (jobs.length === 0) {
+      const globalParams = new URLSearchParams({ count });
+      const globalJobs = await fetchJobicy(globalParams);
+      jobs = hasRole ? globalJobs.filter((job) => matchesRequestedRole(job, role)) : globalJobs;
     }
   } catch (_) {}
   return {
