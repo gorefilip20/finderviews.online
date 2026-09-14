@@ -1,0 +1,11 @@
+import fs from "node:fs";
+const path = "server/prebuilt-index.js";
+let source = fs.readFileSync(path, "utf8");
+const needle = "encodeURIComponent(`${job.companyName} official website contact careers`)";
+const first = source.indexOf(needle);
+const second = source.indexOf(needle, first + needle.length);
+if (first < 0 || second < 0) throw new Error("Expected two provider contact routes");
+source = source.slice(0, second) + source.slice(second).replace(needle, "encodeURIComponent(`${job.company_name} official website contact careers`)");
+fs.writeFileSync(path, source);
+if (source.indexOf("job.companyName} official website contact careers") < 0 || source.indexOf("job.company_name} official website contact careers") < 0) throw new Error("Runtime contact routes not corrected");
+console.log("Corrected runtime provider company fields");

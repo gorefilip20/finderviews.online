@@ -76,6 +76,15 @@ export type FreshJob = {
   contactStatus: string;
   companyWebsite?: string;
   applyEmail?: string;
+  contactSearchUrl: string;
+  hasActionableContact: boolean;
+};
+
+export type JobProviderStatus = {
+  name: string;
+  status: "ok" | "empty" | "error";
+  resultCount: number;
+  error?: string;
 };
 
 export type FreshJobSearchInput = {
@@ -195,11 +204,14 @@ export function mapFreshJob(job: JobicyJob, now = Date.now()): FreshJob | null {
 
   const rawDescription = job.jobDescription || "";
   const cleanDescription = stripMarkup(rawDescription).slice(0, 7000);
+  const company = stripMarkup(job.companyName);
+  const companyWebsite = extractCompanyWebsite(rawDescription);
+  const applyEmail = extractApplyEmail(rawDescription);
 
   return {
     id: String(job.id || `${job.companyName}-${job.jobTitle}-${job.pubDate}`),
     title: stripMarkup(job.jobTitle),
-    company: stripMarkup(job.companyName),
+    company,
     companyLogo: job.companyLogo,
     geography: stripMarkup(job.jobGeo) || "Remote / not specified",
     industry: Array.isArray(job.jobIndustry) ? job.jobIndustry.map(stripMarkup).filter(Boolean) : [],
@@ -213,8 +225,10 @@ export function mapFreshJob(job: JobicyJob, now = Date.now()): FreshJob | null {
     sourceName: JOBICY_SOURCE_NAME,
     salary: formatSalary(job),
     contactStatus: "Use the public source listing or verify a company contact before outreach.",
-    companyWebsite: extractCompanyWebsite(rawDescription),
-    applyEmail: extractApplyEmail(rawDescription),
+    companyWebsite,
+    applyEmail,
+    contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${company} official website contact careers`)}`,
+    hasActionableContact: Boolean(companyWebsite || applyEmail || job.url),
   };
 }
 
@@ -255,7 +269,10 @@ function mapArbeitnowJob(job: ArbeitnowJob, now = Date.now()): FreshJob | null {
   if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
   const description = stripMarkup(job.description).slice(0, 7000);
   const rawDesc = job.description || "";
-  return { id: `arbeitnow-${job.slug || `${job.company_name}-${job.title}`}`, title: stripMarkup(job.title), company: stripMarkup(job.company_name), geography: stripMarkup(job.location) || (job.remote ? "Remote" : "Not specified"), industry: (job.tags || []).map(stripMarkup).filter(Boolean).slice(0, 8), jobType: [], level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(createdMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.url), sourceName: ARBEITNOW_SOURCE_NAME, contactStatus: "Use the original public listing to apply or verify a company contact.", companyWebsite: extractCompanyWebsite(rawDesc), applyEmail: extractApplyEmail(rawDesc) };
+  const company = stripMarkup(job.company_name);
+  const companyWebsite = extractCompanyWebsite(rawDesc);
+  const applyEmail = extractApplyEmail(rawDesc);
+  return { id: `arbeitnow-${job.slug || `${job.company_name}-${job.title}`}`, title: stripMarkup(job.title), company, geography: stripMarkup(job.location) || (job.remote ? "Remote" : "Not specified"), industry: (job.tags || []).map(stripMarkup).filter(Boolean).slice(0, 8), jobType: [], level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(createdMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.url), sourceName: ARBEITNOW_SOURCE_NAME, contactStatus: "Use the original public listing to apply or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${company} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || job.url) };
 }
 async function fetchArbeitnow(): Promise<FreshJob[]> {
   const response = await fetch(ARBEITNOW_SOURCE_URL, { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) });
@@ -276,6 +293,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
 
   let jobs: FreshJob[] = [];
   let fallbackJobs: FreshJob[] = [];
+  const providers: JobProviderStatus[] = [];
   try {
     if (hasRole) {
       const tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role });
@@ -296,8 +314,9 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
       const globalJobs = await fetchJobicy(globalParams);
       jobs = hasRole ? globalJobs.filter((job) => matchesRequestedRole(job, role)) : globalJobs;
     }
-  } catch {
-    // Continue to the independent public fallback below.
+    providers.push({ name: JOBICY_SOURCE_NAME, status: jobs.length > 0 ? "ok" : "empty", resultCount: jobs.length });
+  } catch (error) {
+    providers.push({ name: JOBICY_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
   try {
     const publicJobs = await fetchArbeitnow();
@@ -306,8 +325,9 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     const regionNeedles = input.region === "Europe" ? ["germany", "uk", "united kingdom", "france", "netherlands", "europe"] : input.region === "Asia" ? ["asia", "india", "japan", "singapore", "remote"] : ["usa", "united states", "canada", "brazil", "latam", "remote"];
     const scopedFallback = fallbackJobs.filter((job) => { const text = job.geography.toLowerCase(); return text.includes(countryNeedle) || regionNeedles.some((needle) => text.includes(needle)); });
     fallbackJobs = scopedFallback.length > 0 ? scopedFallback : fallbackJobs;
-  } catch {
-    // Both feeds may be temporarily unavailable; return the best result collected.
+    providers.push({ name: ARBEITNOW_SOURCE_NAME, status: fallbackJobs.length > 0 ? "ok" : "empty", resultCount: fallbackJobs.length });
+  } catch (error) {
+    providers.push({ name: ARBEITNOW_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
   jobs = dedupeJobs([...jobs, ...fallbackJobs]).slice(0, Math.min(Math.max(input.limit || 50, 1), 100));
   return {
@@ -319,5 +339,8 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     regionFilterApplied: geoScope.scope === "region",
     countryContext: input.country,
     regionContext: input.region,
+    providers,
+    refreshedAt: new Date().toISOString(),
+    contactCoverage: jobs.length ? Math.round((jobs.filter((job) => job.hasActionableContact).length / jobs.length) * 100) : 0,
   };
 }

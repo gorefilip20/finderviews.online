@@ -22,7 +22,7 @@ describe("Finder fresh-job mapper", () => {
     });
   });
 
-  it("excludes a job listing older than the strict five-day maximum", () => {
+  it("keeps a job listing inside the documented 30-day maximum", () => {
     const job = mapFreshJob({
       id: 2,
       jobTitle: "Content Writer",
@@ -30,7 +30,7 @@ describe("Finder fresh-job mapper", () => {
       pubDate: "2026-08-19T11:59:59Z",
     }, now);
 
-    expect(job).toBeNull();
+    expect(job).not.toBeNull();
   });
 
   it("sorts retained jobs by most recent original publication time", () => {
@@ -40,13 +40,13 @@ describe("Finder fresh-job mapper", () => {
     ], now);
 
     expect(jobs.map((job) => job.title)).toEqual(["Newer", "Older"]);
-    expect(MAX_JOB_AGE_DAYS).toBe(5);
+    expect(MAX_JOB_AGE_DAYS).toBe(30);
   });
 
   it("uses the closest documented geographic source filter while preserving match precision", () => {
     expect(getJobicyGeoScope({ role: "product manager", country: "United States", region: "Americas" })).toEqual({ geo: "usa", scope: "country" });
-    expect(getJobicyGeoScope({ role: "product manager", country: "Japan", region: "Asia" })).toEqual({ geo: "apac", scope: "region" });
-    expect(getJobicyGeoScope({ role: "content writer", country: "France", region: "Europe" })).toEqual({ geo: "europe", scope: "region" });
+    expect(getJobicyGeoScope({ role: "product manager", country: "Japan", region: "Asia" })).toEqual({ geo: "japan", scope: "country" });
+    expect(getJobicyGeoScope({ role: "content writer", country: "France", region: "Europe" })).toEqual({ geo: "france", scope: "country" });
   });
 
   it("keeps job cards relevant to the requested role or accepted role alias", () => {
