@@ -1,0 +1,13 @@
+import fs from "node:fs";
+const path = "server/prebuilt-index.js";
+let source = fs.readFileSync(path, "utf8");
+const fragment = fs.readFileSync("scripts/wwr-runtime.fragment.txt", "utf8");
+if (!source.includes("function dedupeJobs")) throw new Error("Runtime insertion point missing");
+if (!source.includes("fetchWwrRuntime")) source = source.replace("function dedupeJobs", fragment + "function dedupeJobs");
+source = source.replace("var jobs = []; var fallbackJobs = []; var globalJobs = [];", "var jobs = []; var fallbackJobs = []; var globalJobs = []; var rssJobs = [];");
+const needle = "jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 150));";
+const replacement = "try { rssJobs = (await fetchWwrRuntime()).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs, rssJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 180));";
+if (source.includes(needle)) source = source.replace(needle, replacement);
+fs.writeFileSync(path, source);
+if (!source.includes("fetchWwrRuntime") || !source.includes("rssJobs")) throw new Error("WWR runtime patch failed");
+console.log("Added WWR RSS runtime source");

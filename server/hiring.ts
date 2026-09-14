@@ -266,6 +266,8 @@ type HimalayasJob = { guid?: string; title?: string; companyName?: string; compa
 type HimalayasResponse = { jobs?: HimalayasJob[] };
 const HIMALAYAS_SOURCE_NAME = "Himalayas";
 const HIMALAYAS_SOURCE_URL = "https://himalayas.app/docs/remote-jobs-api";
+const WWR_SOURCE_NAME = "We Work Remotely";
+const WWR_SOURCE_URL = "https://weworkremotely.com/remote-job-rss-feed";
 function mapArbeitnowJob(job: ArbeitnowJob, now = Date.now()): FreshJob | null {
   if (!job.title || !job.company_name || !job.created_at) return null;
   const createdMs = typeof job.created_at === "number" ? (job.created_at < 10_000_000_000 ? job.created_at * 1000 : job.created_at) : Date.parse(job.created_at);
@@ -310,6 +312,19 @@ async function fetchHimalayas(role: string, worldwide: boolean): Promise<FreshJo
   const payload = (await response.json()) as HimalayasResponse;
   return (payload.jobs || []).map((job) => mapHimalayasJob(job)).filter((job): job is FreshJob => job !== null);
 }
+
+function decodeXml(value: string) { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'"); }
+function rssTag(item: string, tag: string) { const match = item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i")); return match ? decodeXml(match[1].trim()) : ""; }
+function mapWwrItem(item: string, now = Date.now()): FreshJob | null {
+  const headline = rssTag(item, "title"); const pubDate = rssTag(item, "pubDate"); const sourceUrl = rssTag(item, "link") || rssTag(item, "guid"); if (!headline || !pubDate || !sourceUrl) return null;
+  const publishedMs = Date.parse(pubDate); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const split = headline.indexOf(":"); const company = split > 0 ? headline.slice(0, split).trim() : "Remote employer"; const title = split > 0 ? headline.slice(split + 1).trim() : headline; const rawDescription = rssTag(item, "description"); const description = stripMarkup(rawDescription).slice(0, 7000); const companyWebsite = extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription);
+  return { id: `wwr-${sourceUrl}`, title, company, geography: rssTag(item, "region") || "Worldwide / remote", industry: [rssTag(item, "category")].filter(Boolean), jobType: [rssTag(item, "type")].filter(Boolean), level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(sourceUrl), sourceName: WWR_SOURCE_NAME, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${company} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || sourceUrl) };
+}
+async function fetchWwrRss(): Promise<FreshJob[]> {
+  const response = await fetch("https://weworkremotely.com/remote-jobs.rss", { headers: { Accept: "application/rss+xml, application/xml, text/xml", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return [];
+  const xml = await response.text(); return [...xml.matchAll(/<item[\s\S]*?<\/item>/gi)].map((match) => mapWwrItem(match[0])).filter((job): job is FreshJob => job !== null);
+}
 function dedupeJobs(jobs: FreshJob[]) {
   const seen = new Set<string>();
   return jobs.filter((job) => { const key = `${job.company.toLowerCase()}|${job.title.toLowerCase()}|${job.sourceUrl}`; if (seen.has(key)) return false; seen.add(key); return true; });
@@ -324,6 +339,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   let jobs: FreshJob[] = [];
   let fallbackJobs: FreshJob[] = [];
   let globalJobs: FreshJob[] = [];
+  let rssJobs: FreshJob[] = [];
   const providers: JobProviderStatus[] = [];
   try {
     if (hasRole) {
@@ -368,7 +384,13 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   } catch (error) {
     providers.push({ name: HIMALAYAS_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
-  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 150));
+  try {
+    rssJobs = (await fetchWwrRss()).filter((job) => !hasRole || matchesRequestedRole(job, role));
+    providers.push({ name: WWR_SOURCE_NAME, status: rssJobs.length > 0 ? "ok" : "empty", resultCount: rssJobs.length });
+  } catch (error) {
+    providers.push({ name: WWR_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
+  }
+  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs, ...rssJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 180));
   return {
     jobs,
     sourceName: jobs.length > 0 ? [...new Set(jobs.map((job) => job.sourceName))].join(" + ") : `${JOBICY_SOURCE_NAME} + ${ARBEITNOW_SOURCE_NAME}`,
