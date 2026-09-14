@@ -268,6 +268,9 @@ const HIMALAYAS_SOURCE_NAME = "Himalayas";
 const HIMALAYAS_SOURCE_URL = "https://himalayas.app/docs/remote-jobs-api";
 const WWR_SOURCE_NAME = "We Work Remotely";
 const WWR_SOURCE_URL = "https://weworkremotely.com/remote-job-rss-feed";
+const ADZUNA_SOURCE_NAME = "Adzuna";
+const ADZUNA_SOURCE_URL = "https://developer.adzuna.com/";
+const ADZUNA_EUROPE_COUNTRIES: Record<string, string> = { Germany: "de", Finland: "fi", "United Kingdom": "gb", France: "fr", Netherlands: "nl", Sweden: "se", Norway: "no", Denmark: "dk", Spain: "es", Italy: "it", Poland: "pl", Ireland: "ie", Austria: "at", Belgium: "be", Portugal: "pt", Switzerland: "ch" };
 function mapArbeitnowJob(job: ArbeitnowJob, now = Date.now()): FreshJob | null {
   if (!job.title || !job.company_name || !job.created_at) return null;
   const createdMs = typeof job.created_at === "number" ? (job.created_at < 10_000_000_000 ? job.created_at * 1000 : job.created_at) : Date.parse(job.created_at);
@@ -325,6 +328,20 @@ async function fetchWwrRss(): Promise<FreshJob[]> {
   const response = await fetch("https://weworkremotely.com/remote-jobs.rss", { headers: { Accept: "application/rss+xml, application/xml, text/xml", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return [];
   const xml = await response.text(); return [...xml.matchAll(/<item[\s\S]*?<\/item>/gi)].map((match) => mapWwrItem(match[0])).filter((job): job is FreshJob => job !== null);
 }
+
+type AdzunaJob = { id?: string | number; title?: string; company?: { display_name?: string }; location?: { display_name?: string }; description?: string; created?: string; redirect_url?: string; category?: { label?: string }; contract_type?: string; contract_time?: string; salary_min?: number; salary_max?: number; salary_is_predicted?: string; }; type AdzunaResponse = { results?: AdzunaJob[] };
+function mapAdzunaJob(job: AdzunaJob, now = Date.now()): FreshJob | null {
+  if (!job.title || !job.company?.display_name || !job.created || !job.redirect_url) return null;
+  const publishedMs = Date.parse(job.created); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const company = stripMarkup(job.company.display_name); const rawDescription = job.description || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const companyWebsite = extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); const salary = job.salary_min || job.salary_max ? `${job.salary_min || "?"}–${job.salary_max || "?"}${job.salary_is_predicted === "1" ? " (estimated)" : ""}` : undefined;
+  return { id: `adzuna-${job.id || `${company}-${job.title}-${job.created}`}`, title: stripMarkup(job.title), company, geography: stripMarkup(job.location?.display_name) || "Europe", industry: [stripMarkup(job.category?.label)].filter(Boolean), jobType: [job.contract_type, job.contract_time].filter(Boolean).map((value) => stripMarkup(value)), level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.redirect_url), sourceName: ADZUNA_SOURCE_NAME, salary, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${company} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || job.redirect_url) };
+}
+async function fetchAdzuna(input: FreshJobSearchInput, role: string): Promise<FreshJob[]> {
+  const appId = process.env.ADZUNA_APP_ID; const appKey = process.env.ADZUNA_APP_KEY; if (!appId || !appKey) return [];
+  const countries = input.country !== "Worldwide" && ADZUNA_EUROPE_COUNTRIES[input.country] ? [ADZUNA_EUROPE_COUNTRIES[input.country]] : input.region === "Europe" ? Object.values(ADZUNA_EUROPE_COUNTRIES) : [];
+  const pages = await Promise.all(countries.map(async (country) => { const params = new URLSearchParams({ app_id: appId, app_key: appKey, results_per_page: "50", what: role && role !== "All hiring roles" ? role : "", content_type: "application/json" }); const response = await fetch(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params.toString()}`, { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return []; const payload = (await response.json()) as AdzunaResponse; return (payload.results || []).map((job) => mapAdzunaJob(job)).filter((job): job is FreshJob => job !== null); }));
+  return pages.flat();
+}
 function dedupeJobs(jobs: FreshJob[]) {
   const seen = new Set<string>();
   return jobs.filter((job) => { const key = `${job.company.toLowerCase()}|${job.title.toLowerCase()}|${job.sourceUrl}`; if (seen.has(key)) return false; seen.add(key); return true; });
@@ -340,6 +357,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   let fallbackJobs: FreshJob[] = [];
   let globalJobs: FreshJob[] = [];
   let rssJobs: FreshJob[] = [];
+  let adzunaJobs: FreshJob[] = [];
   const providers: JobProviderStatus[] = [];
   try {
     if (hasRole) {
@@ -390,7 +408,13 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   } catch (error) {
     providers.push({ name: WWR_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
-  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs, ...rssJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 180));
+  try {
+    adzunaJobs = (await fetchAdzuna(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role));
+    providers.push({ name: ADZUNA_SOURCE_NAME, status: adzunaJobs.length > 0 ? "ok" : process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY ? "empty" : "disabled", resultCount: adzunaJobs.length });
+  } catch (error) {
+    providers.push({ name: ADZUNA_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
+  }
+  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs, ...rssJobs, ...adzunaJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 220));
   return {
     jobs,
     sourceName: jobs.length > 0 ? [...new Set(jobs.map((job) => job.sourceName))].join(" + ") : `${JOBICY_SOURCE_NAME} + ${ARBEITNOW_SOURCE_NAME}`,
