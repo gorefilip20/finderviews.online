@@ -115,6 +115,7 @@ export default function Home() {
   const [usingPreview, setUsingPreview] = useState(false);
   const [query, setQuery] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [outreachSavedJobIds, setOutreachSavedJobIds] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [faqOpen, setFaqOpen] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -169,6 +170,13 @@ export default function Home() {
     window.addEventListener("storage", syncPosts);
     return () => window.removeEventListener("storage", syncPosts);
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetch("/api/outreach/leads", { credentials: "include" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (Array.isArray(payload?.leads)) setOutreachSavedJobIds(payload.leads.map((lead: { sourceUrl?: string }) => lead.sourceUrl).filter(Boolean));
+    }).catch(() => undefined);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -429,12 +437,42 @@ export default function Home() {
     }
   };
 
+  const saveLeadToOutreach = async (lead: Lead) => {
+    if (!isAuthenticated) { toast.message("Sign in to sync saved leads and outreach drafts across devices."); startLogin(); return; }
+    const response = await fetch("/api/outreach/leads", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: lead.name, company: lead.name, sourceUrl: lead.source || "https://www.openstreetmap.org/", geography: lead.location, contactUrl: lead.source }) });
+    if (!response.ok) throw new Error("lead save failed");
+    toast.success("Lead added to your outreach queue.");
+  };
+
   const toggleSaved = (id: string) => {
     setSavedIds((current) => {
       const saved = current.includes(id);
+      const lead = leads.find((item) => item.id === id);
+      if (!saved && lead) void saveLeadToOutreach(lead).catch(() => toast.error("Lead saved locally, but could not sync to the outreach queue."));
       toast.success(saved ? "Lead removed from your outreach set." : "Lead saved to your outreach set.");
       return saved ? current.filter((value) => value !== id) : [...current, id];
     });
+  };
+
+  const saveSelectedJobToOutreach = async () => {
+    if (!selectedJob) return;
+    if (!isAuthenticated) { toast.message("Sign in to save jobs to the outreach queue."); startLogin(); return; }
+    try {
+      const response = await fetch("/api/outreach/leads", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: selectedJob.title, company: selectedJob.company, sourceUrl: selectedJob.sourceUrl, geography: selectedJob.geography, contactEmail: selectedJob.applyEmail, contactUrl: selectedJob.companyWebsite || selectedJob.contactSearchUrl }) });
+      if (!response.ok) throw new Error("job save failed");
+      setOutreachSavedJobIds((current) => current.includes(selectedJob.sourceUrl) ? current : [...current, selectedJob.sourceUrl]);
+      toast.success("Job added to your outreach queue.");
+    } catch { toast.error("The job could not be added to your outreach queue."); }
+  };
+
+  const createOutreachDraft = async () => {
+    if (!selectedJob?.applyEmail) { toast.message("This listing has no public email. Open the public contact route or original application page instead."); return; }
+    if (!isAuthenticated) { toast.message("Sign in to create an outreach draft."); startLogin(); return; }
+    try {
+      const response = await fetch("/api/outreach/drafts", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: selectedJob.applyEmail, subject: `A practical idea for ${selectedJob.company}'s ${selectedJob.title} hiring need`, text: `Hello ${selectedJob.company} team,\n\nI saw your public ${selectedJob.title} listing and wanted to share a practical idea that may support this hiring need. If useful, I would be glad to send a short overview.\n\nBest,\n[Your name]\n\nPublic source: ${selectedJob.sourceUrl}`, leadId: selectedJob.sourceUrl }) });
+      if (!response.ok) throw new Error("draft failed");
+      toast.success("Draft saved for review. Nothing was sent automatically.");
+    } catch { toast.error("The outreach draft could not be saved."); }
   };
 
   const exportPreview = () => {
@@ -741,7 +779,7 @@ export default function Home() {
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
               <label><span>ELIGIBLE REGION</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRegion} onChange={(event) => { const nextRegion = event.target.value as MarketRegion; setJobRegion(nextRegion); setJobCountry(MARKET_COVERAGE[nextRegion][0]); }}>{SUPPORTED_REGIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
-              <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => { setJobCountry(event.target.value); setJobState(""); setJobCity(""); }}>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => { setJobCountry(event.target.value); setJobState(""); setJobCity(""); }}><option>Worldwide</option>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>STATE / PROVINCE</span><div className="hiring-select"><MapPin size={16} /><select value={jobState} onChange={(event) => { setJobState(event.target.value); setJobCity(""); }} disabled={availableStates.length === 0}><option value="">{availableStates.length ? "All states / provinces" : "Loading states…"}</option>{availableStates.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>CITY</span><div className="hiring-select"><MapPin size={16} /><select value={jobCity} onChange={(event) => setJobCity(event.target.value)} disabled={availableCities.length === 0}><option value="">{availableCities.length ? "All cities" : "Select a state first"}</option>{availableCities.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>POSTED WITHIN</span><div className="hiring-select"><CalendarDays size={16} /><select value={jobFreshness} onChange={(event) => setJobFreshness(event.target.value as typeof jobFreshness)}><option value="24h">Today (24 hours)</option><option value="7d">This week (7 days)</option><option value="30d">Last 30 days</option></select><ChevronDown size={15} /></div></label>
@@ -760,7 +798,7 @@ export default function Home() {
               {jobSearchRequested && hiringSearch.isError && <div className="job-empty-state"><CircleHelp size={30} /><strong>The live job source is unavailable right now.</strong><span>The data-ready workspace is still available. Please try the same role again in a moment.</span></div>}
               {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No roles matched this search{jobFreshness !== "30d" ? ` within ${freshnessLabel}` : ""} right now.</strong><span>{jobFreshness !== "30d" && allJobs.length > 0 ? `${allJobs.length} role${allJobs.length === 1 ? "" : "s"} found in the full 30-day window. Widen the freshness filter to see them.` : "Try a broader role title (like \"developer\" instead of \"web developer\"), change the region, or widen the freshness window."}</span></div>}
               {jobs.length > 0 && <div className="job-list">{jobs.map((job) => <button className={cn("job-row", selectedJob?.id === job.id && "job-row--selected")} key={job.id} onClick={() => setSelectedJobId(job.id)}><div className="job-row__company">{job.companyLogo ? <img src={job.companyLogo} alt="" /> : <span className="company-fallback"><Building2 size={15} /></span>}<span><strong>{job.company}</strong><small>{job.geography} · {job.industry.join(", ") || "Hiring company"}</small></span></div><div className="job-row__role"><strong>{job.title}</strong><span>{job.jobType.join(" · ") || "Employment type not specified"}</span></div><div className="job-row__date"><CalendarDays size={14} /><span>{job.ageHours < 24 ? `${job.ageHours}h ago` : `${Math.floor(job.ageHours / 24)}d ago`}</span></div><ArrowUpRight size={16} /></button>)}</div>}
-              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {freshnessLabel} window · {hiringSearch.data.contactCoverage}% have a direct public route.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
+              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.globalFilterApplied ? "Worldwide source search" : hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {freshnessLabel} window · {hiringSearch.data.contactCoverage}% have a direct public route.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
             </div>
 
             <aside className="hiring-detail-panel">
@@ -771,7 +809,7 @@ export default function Home() {
                 <p>{selectedJob.excerpt || "This fresh listing signals a current hiring need. Review the public source before reaching out."}</p>
                 <div className="hiring-detail-facts"><div><MapPin size={16} /><span><small>SOURCE GEOGRAPHY</small>{selectedJob.geography}</span></div><div><BriefcaseBusiness size={16} /><span><small>ROLE TYPE</small>{selectedJob.jobType.join(" · ") || "Not specified"}</span></div>{selectedJob.salary && <div><Target size={16} /><span><small>LISTED RANGE</small>{selectedJob.salary}</span></div>}</div>
                 <div className="company-contact-results"><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
-                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">View public job <ExternalLink size={16} /></a><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">View public job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save to outreach"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
             </aside>

@@ -138,6 +138,7 @@ const regionToJobicyGeo: Record<FreshJobSearchInput["region"], string> = {
 };
 
 export function getJobicyGeoScope(input: FreshJobSearchInput) {
+  if (input.country === "Worldwide") return { geo: "", scope: "global" as const };
   const directGeo = countryToJobicyGeo[input.country];
   if (directGeo) return { geo: directGeo, scope: "country" as const };
   return { geo: regionToJobicyGeo[input.region], scope: "region" as const };
@@ -296,11 +297,13 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   const providers: JobProviderStatus[] = [];
   try {
     if (hasRole) {
-      const tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role });
+      const tagParams = new URLSearchParams({ count, tag: role });
+      if (geoScope.geo) tagParams.set("geo", geoScope.geo);
       jobs = (await fetchJobicy(tagParams)).filter((job) => matchesRequestedRole(job, role));
     }
     if (jobs.length === 0) {
-      const broadParams = new URLSearchParams({ count, geo: geoScope.geo });
+      const broadParams = new URLSearchParams({ count });
+      if (geoScope.geo) broadParams.set("geo", geoScope.geo);
       const allJobs = await fetchJobicy(broadParams);
       jobs = hasRole ? allJobs.filter((job) => matchesRequestedRole(job, role)) : allJobs;
     }
@@ -323,7 +326,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     fallbackJobs = hasRole ? publicJobs.filter((job) => matchesRequestedRole(job, role)) : publicJobs;
     const countryNeedle = input.country.toLowerCase();
     const regionNeedles = input.region === "Europe" ? ["germany", "uk", "united kingdom", "france", "netherlands", "europe"] : input.region === "Asia" ? ["asia", "india", "japan", "singapore", "remote"] : ["usa", "united states", "canada", "brazil", "latam", "remote"];
-    const scopedFallback = fallbackJobs.filter((job) => { const text = job.geography.toLowerCase(); return text.includes(countryNeedle) || regionNeedles.some((needle) => text.includes(needle)); });
+    const scopedFallback = input.country === "Worldwide" ? fallbackJobs : fallbackJobs.filter((job) => { const text = job.geography.toLowerCase(); return text.includes(countryNeedle) || regionNeedles.some((needle) => text.includes(needle)); });
     fallbackJobs = scopedFallback.length > 0 ? scopedFallback : fallbackJobs;
     providers.push({ name: ARBEITNOW_SOURCE_NAME, status: fallbackJobs.length > 0 ? "ok" : "empty", resultCount: fallbackJobs.length });
   } catch (error) {
@@ -337,6 +340,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     freshnessDays: MAX_JOB_AGE_DAYS,
     countryFilterApplied: geoScope.scope === "country",
     regionFilterApplied: geoScope.scope === "region",
+    globalFilterApplied: geoScope.scope === "global",
     countryContext: input.country,
     regionContext: input.region,
     providers,

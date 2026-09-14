@@ -1,0 +1,10 @@
+import fs from "node:fs";
+const path = "server/prebuilt-index.js";
+let source = fs.readFileSync(path, "utf8");
+const fragment = fs.readFileSync("scripts/outreach-routes.fragment.txt", "utf8");
+const functionEnd = "\n}\n// server/_core/index.ts";
+if (!source.includes("var OUTREACH_STORE_PATH") && !source.includes(functionEnd)) throw new Error("Outreach route insertion point not found");
+if (!source.includes("/api/outreach/leads")) source = source.replace(functionEnd, "\n" + fragment + functionEnd);
+if (!source.includes("var OUTREACH_STORE_PATH")) source = source.replace('var PROFILE_STORE_PATH = path2.resolve(import.meta.dirname, "employer-profiles.json");', 'var PROFILE_STORE_PATH = path2.resolve(import.meta.dirname, "employer-profiles.json");\nvar OUTREACH_STORE_PATH = path2.resolve(import.meta.dirname, "outreach-leads.json");\nvar OUTREACH_DRAFT_STORE_PATH = path2.resolve(import.meta.dirname, "outreach-drafts.json");');
+fs.writeFileSync(path, source);
+console.log("Added authenticated outreach routes");

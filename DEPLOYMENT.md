@@ -28,6 +28,10 @@ Authentication is already wired through the existing Manus OAuth session flow. E
 
 The external Jobicy feed remains subject to its published fair-use polling guidance; it cannot guarantee instant delivery of a newly posted external job. The near-real-time experience is therefore provided by the Finderviews urgent-opportunity publisher and 15-second board refresh, while third-party jobs remain source-attributed and periodically refreshed.
 
+The hiring workspace now includes an explicit Worldwide scope. It searches the global Jobicy feed plus the independent Arbeitnow fallback, while country and region searches retain their documented geographic precision. Every result keeps an original public listing URL and the UI provides a public company-contact route when a direct email or website is not embedded in the feed.
+
+The outreach queue is account-scoped and stored in `outreach-leads.json` and `outreach-drafts.json` beside the runtime. Users can save local-business leads or hiring listings, create email drafts from verified public emails, and review them before sending. No message is sent merely by saving a lead or creating a draft. To enable optional sending on Hostinger, configure `RESEND_API_KEY` and `OUTREACH_FROM_EMAIL`; the send endpoint still requires an explicit confirmation payload. Direct messaging is handled through the public contact/application URL rather than automated scraping or unsolicited platform messages.
+
 The repository has been renamed and branded for Finderviews, including the browser title, description, visible logo label, accessibility labels, and user-facing page copy. No database credentials, OAuth secrets, or `.env` files should be committed; configure those privately in Hostinger environment variables.
 
 ## Domain

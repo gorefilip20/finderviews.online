@@ -45,6 +45,7 @@ describe("Finder fresh-job mapper", () => {
 
   it("uses the closest documented geographic source filter while preserving match precision", () => {
     expect(getJobicyGeoScope({ role: "product manager", country: "United States", region: "Americas" })).toEqual({ geo: "usa", scope: "country" });
+    expect(getJobicyGeoScope({ role: "product manager", country: "Worldwide", region: "Americas" })).toEqual({ geo: "", scope: "global" });
     expect(getJobicyGeoScope({ role: "product manager", country: "Japan", region: "Asia" })).toEqual({ geo: "japan", scope: "country" });
     expect(getJobicyGeoScope({ role: "content writer", country: "France", region: "Europe" })).toEqual({ geo: "france", scope: "country" });
   });
