@@ -1,0 +1,13 @@
+import fs from "node:fs";
+const path = "server/prebuilt-index.js";
+let source = fs.readFileSync(path, "utf8");
+const fragment = fs.readFileSync("scripts/theirstack-runtime.fragment.txt", "utf8");
+if (!source.includes("function dedupeJobs")) throw new Error("Runtime insertion point missing");
+if (!source.includes("fetchTheirStackRuntime")) source = source.replace("function dedupeJobs", fragment + "function dedupeJobs");
+source = source.replace("var jobs = []; var fallbackJobs = []; var globalJobs = []; var rssJobs = []; var adzunaJobs = [];", "var jobs = []; var fallbackJobs = []; var globalJobs = []; var rssJobs = []; var adzunaJobs = []; var theirStackJobs = [];");
+const needle = "jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs, rssJobs, adzunaJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 220));";
+const replacement = "try { theirStackJobs = (await fetchTheirStackRuntime(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs, rssJobs, adzunaJobs, theirStackJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 500));";
+if (source.includes(needle)) source = source.replace(needle, replacement);
+fs.writeFileSync(path, source);
+if (!source.includes("fetchTheirStackRuntime") || !source.includes("theirStackJobs")) throw new Error("TheirStack runtime patch failed");
+console.log("Added TheirStack runtime source");

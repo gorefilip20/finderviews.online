@@ -82,7 +82,7 @@ export type FreshJob = {
 
 export type JobProviderStatus = {
   name: string;
-  status: "ok" | "empty" | "error";
+  status: "ok" | "empty" | "error" | "disabled";
   resultCount: number;
   error?: string;
 };
@@ -271,6 +271,9 @@ const WWR_SOURCE_URL = "https://weworkremotely.com/remote-job-rss-feed";
 const ADZUNA_SOURCE_NAME = "Adzuna";
 const ADZUNA_SOURCE_URL = "https://developer.adzuna.com/";
 const ADZUNA_EUROPE_COUNTRIES: Record<string, string> = { Germany: "de", Finland: "fi", "United Kingdom": "gb", France: "fr", Netherlands: "nl", Sweden: "se", Norway: "no", Denmark: "dk", Spain: "es", Italy: "it", Poland: "pl", Ireland: "ie", Austria: "at", Belgium: "be", Portugal: "pt", Switzerland: "ch" };
+const THEIRSTACK_SOURCE_NAME = "TheirStack";
+const THEIRSTACK_SOURCE_URL = "https://theirstack.com/en/job-posting-api";
+const THEIRSTACK_EUROPE_COUNTRIES: Record<string, string> = { Germany: "DE", Finland: "FI", "United Kingdom": "GB", France: "FR", Netherlands: "NL", Sweden: "SE", Norway: "NO", Denmark: "DK", Spain: "ES", Italy: "IT", Poland: "PL", Ireland: "IE", Austria: "AT", Belgium: "BE", Portugal: "PT", Switzerland: "CH", Estonia: "EE", Latvia: "LV", Lithuania: "LT", Czechia: "CZ", Slovakia: "SK", Slovenia: "SI", Croatia: "HR", Greece: "GR", Hungary: "HU", Romania: "RO", Bulgaria: "BG", Luxembourg: "LU", Malta: "MT", Cyprus: "CY" };
 function mapArbeitnowJob(job: ArbeitnowJob, now = Date.now()): FreshJob | null {
   if (!job.title || !job.company_name || !job.created_at) return null;
   const createdMs = typeof job.created_at === "number" ? (job.created_at < 10_000_000_000 ? job.created_at * 1000 : job.created_at) : Date.parse(job.created_at);
@@ -342,6 +345,24 @@ export async function fetchAdzuna(input: FreshJobSearchInput, role: string): Pro
   const pages = await Promise.all(countries.map(async (country) => { const params = new URLSearchParams({ app_id: appId, app_key: appKey, results_per_page: "50", what: role && role !== "All hiring roles" ? role : "", content_type: "application/json" }); const response = await fetch(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${params.toString()}`, { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return []; const payload = (await response.json()) as AdzunaResponse; return (payload.results || []).map((job) => mapAdzunaJob(job)).filter((job): job is FreshJob => job !== null); }));
   return pages.flat();
 }
+
+type TheirStackJob = { id?: string | number; job_id?: string | number; job_title?: string; title?: string; company_name?: string; company?: { name?: string; domain?: string; home_page_url?: string }; job_location?: string; location?: string | { city?: string; country?: string; display_name?: string }; description?: string; job_description?: string; final_url?: string; url?: string; source_url?: string; date_posted?: string; posted_at?: string; created_at?: string; job_country_code?: string; salary_min?: number; salary_max?: number; salary_currency?: string; seniority?: string; employment_type?: string; category?: string; }; type TheirStackResponse = { jobs?: TheirStackJob[]; data?: TheirStackJob[]; results?: TheirStackJob[] };
+function mapTheirStackJob(job: TheirStackJob, now = Date.now()): FreshJob | null {
+  const title = job.job_title || job.title; const company = job.company_name || job.company?.name; const posted = job.date_posted || job.posted_at || job.created_at; const sourceUrl = job.final_url || job.url || job.source_url;
+  if (!title || !company || !posted || !sourceUrl) return null;
+  const publishedMs = Date.parse(posted); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const rawDescription = job.description || job.job_description || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const cleanCompany = stripMarkup(company); const location = typeof job.location === "string" ? job.location : job.location?.display_name || [job.location?.city, job.location?.country].filter(Boolean).join(", "); const companyWebsite = job.company?.home_page_url || extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); const salary = job.salary_min || job.salary_max ? `${job.salary_currency || ""} ${job.salary_min || "?"}–${job.salary_max || "?"}`.trim() : undefined;
+  return { id: `theirstack-${job.id || job.job_id || `${cleanCompany}-${title}-${posted}`}`, title: stripMarkup(title), company: cleanCompany, geography: stripMarkup(location) || job.job_country_code || "Europe", industry: [stripMarkup(job.category)].filter(Boolean), jobType: [stripMarkup(job.employment_type)].filter(Boolean), level: stripMarkup(job.seniority) || "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(sourceUrl), sourceName: THEIRSTACK_SOURCE_NAME, salary, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${cleanCompany} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || sourceUrl) };
+}
+export async function fetchTheirStack(input: FreshJobSearchInput, role: string): Promise<FreshJob[]> {
+  const apiKey = process.env.THEIRSTACK_API_KEY; if (!apiKey) return [];
+  const countries = input.country !== "Worldwide" && THEIRSTACK_EUROPE_COUNTRIES[input.country] ? [THEIRSTACK_EUROPE_COUNTRIES[input.country]] : input.region === "Europe" ? Object.values(THEIRSTACK_EUROPE_COUNTRIES) : [];
+  if (countries.length === 0) return [];
+  const response = await fetch("https://api.theirstack.com/v1/jobs/search", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "User-Agent": "Finderviews/1.0" }, body: JSON.stringify({ job_title_or: role && role !== "All hiring roles" ? [role] : undefined, job_country_code_or: countries, posted_at_max_age_days: MAX_JOB_AGE_DAYS, limit: Math.min(input.limit || 100, 500) }), signal: AbortSignal.timeout(15000) });
+  if (!response.ok) return [];
+  const payload = (await response.json()) as TheirStackResponse;
+  return (payload.jobs || payload.data || payload.results || []).map((job) => mapTheirStackJob(job)).filter((job): job is FreshJob => job !== null);
+}
 function dedupeJobs(jobs: FreshJob[]) {
   const seen = new Set<string>();
   return jobs.filter((job) => { const key = `${job.company.toLowerCase()}|${job.title.toLowerCase()}|${job.sourceUrl}`; if (seen.has(key)) return false; seen.add(key); return true; });
@@ -358,6 +379,7 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   let globalJobs: FreshJob[] = [];
   let rssJobs: FreshJob[] = [];
   let adzunaJobs: FreshJob[] = [];
+  let theirStackJobs: FreshJob[] = [];
   const providers: JobProviderStatus[] = [];
   try {
     if (hasRole) {
@@ -414,7 +436,13 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   } catch (error) {
     providers.push({ name: ADZUNA_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
-  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs, ...rssJobs, ...adzunaJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 220));
+  try {
+    theirStackJobs = (await fetchTheirStack(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role));
+    providers.push({ name: THEIRSTACK_SOURCE_NAME, status: theirStackJobs.length > 0 ? "ok" : process.env.THEIRSTACK_API_KEY ? "empty" : "disabled", resultCount: theirStackJobs.length });
+  } catch (error) {
+    providers.push({ name: THEIRSTACK_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
+  }
+  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs, ...rssJobs, ...adzunaJobs, ...theirStackJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 500));
   return {
     jobs,
     sourceName: jobs.length > 0 ? [...new Set(jobs.map((job) => job.sourceName))].join(" + ") : `${JOBICY_SOURCE_NAME} + ${ARBEITNOW_SOURCE_NAME}`,

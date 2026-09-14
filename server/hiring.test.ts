@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_JOB_AGE_DAYS, fetchAdzuna, getJobicyGeoScope, mapFreshJob, mapFreshJobs, matchesRequestedRole } from "./hiring";
+import { MAX_JOB_AGE_DAYS, fetchAdzuna, fetchTheirStack, getJobicyGeoScope, mapFreshJob, mapFreshJobs, matchesRequestedRole } from "./hiring";
 
 const now = Date.UTC(2026, 7, 24, 12, 0, 0);
 
@@ -82,6 +82,29 @@ describe("Finder fresh-job mapper", () => {
       globalThis.fetch = originalFetch;
       if (originalAppId === undefined) delete process.env.ADZUNA_APP_ID; else process.env.ADZUNA_APP_ID = originalAppId;
       if (originalAppKey === undefined) delete process.env.ADZUNA_APP_KEY; else process.env.ADZUNA_APP_KEY = originalAppKey;
+    }
+  });
+
+  it("queries TheirStack for Germany and Finland with a mock key", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalKey = process.env.THEIRSTACK_API_KEY;
+    process.env.THEIRSTACK_API_KEY = "mock-theirstack-key";
+    const requests: Array<{ url: string; body: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      requests.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+      return new Response(JSON.stringify({ jobs: [{ id: "ts-1", job_title: "Senior Software Engineer", company_name: "Nordic Systems", location: { display_name: "Helsinki, Finland" }, description: "Build reliable systems.", date_posted: "2026-08-24T10:00:00Z", final_url: "https://jobs.example.test/ts-1", job_country_code: "FI", company: { home_page_url: "https://nordic.example.test" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      const finland = await fetchTheirStack({ role: "Software engineer", country: "Finland", region: "Europe" }, "Software engineer");
+      const germany = await fetchTheirStack({ role: "Software engineer", country: "Germany", region: "Europe" }, "Software engineer");
+      expect(requests[0].url).toBe("https://api.theirstack.com/v1/jobs/search");
+      expect(requests[0].body.job_country_code_or).toEqual(["FI"]);
+      expect(requests[1].body.job_country_code_or).toEqual(["DE"]);
+      expect(finland[0]).toMatchObject({ company: "Nordic Systems", geography: "Helsinki, Finland", sourceName: "TheirStack", companyWebsite: "https://nordic.example.test" });
+      expect(germany[0].sourceName).toBe("TheirStack");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) delete process.env.THEIRSTACK_API_KEY; else process.env.THEIRSTACK_API_KEY = originalKey;
     }
   });
 });
