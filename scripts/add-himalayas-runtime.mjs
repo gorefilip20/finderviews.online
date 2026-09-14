@@ -1,0 +1,14 @@
+import fs from "node:fs";
+const path = "server/prebuilt-index.js";
+let source = fs.readFileSync(path, "utf8");
+const fragment = fs.readFileSync("scripts/himalayas-runtime.fragment.txt", "utf8");
+if (!source.includes("function dedupeJobs")) throw new Error("Runtime dedupe insertion point missing");
+if (!source.includes("fetchHimalayasRuntime")) source = source.replace("function dedupeJobs", fragment + "function dedupeJobs");
+source = source.replace("var jobs = []; var fallbackJobs = []; try {", "var jobs = []; var fallbackJobs = []; var globalJobs = []; try {");
+const old = "jobs = dedupeJobs(jobs.concat(fallbackJobs)).slice(0, Math.min(Math.max(input.limit || 50, 1), 100));";
+const next = "try { globalJobs = (await fetchHimalayasRuntime(hasRole ? role : \"\", input.country === \"Worldwide\")).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 150));";
+if (source.includes(old)) source = source.replace(old, next);
+source = source.replace("var count = String(Math.min(Math.max(input.limit || 50, 1), 60));", "var count = String(Math.min(Math.max(input.limit || 100, 1), 60));");
+fs.writeFileSync(path, source);
+if (!source.includes("fetchHimalayasRuntime") || !source.includes("globalJobs")) throw new Error("Himalayas runtime patch failed");
+console.log("Added Himalayas runtime source");

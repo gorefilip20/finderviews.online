@@ -119,11 +119,11 @@ export default function Home() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [faqOpen, setFaqOpen] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [jobRole, setJobRole] = useState("Product manager");
+  const [jobRole, setJobRole] = useState("All hiring roles");
   const [jobRegion, setJobRegion] = useState<MarketRegion>("Americas");
-  const [jobCountry, setJobCountry] = useState("United States");
+  const [jobCountry, setJobCountry] = useState("Worldwide");
   const [jobFreshness, setJobFreshness] = useState<"24h" | "7d" | "30d">("30d");
-  const [jobSearchRequested, setJobSearchRequested] = useState(false);
+  const [jobSearchRequested, setJobSearchRequested] = useState(true);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [approvedBriefFor, setApprovedBriefFor] = useState<string | null>(null);
   const [jobAlertEnabled, setJobAlertEnabled] = useState(false);

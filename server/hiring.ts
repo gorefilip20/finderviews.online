@@ -262,6 +262,10 @@ type ArbeitnowJob = { slug?: string; title?: string; company_name?: string; loca
 type ArbeitnowResponse = { data?: ArbeitnowJob[] };
 const ARBEITNOW_SOURCE_NAME = "Arbeitnow";
 const ARBEITNOW_SOURCE_URL = "https://www.arbeitnow.com/api/job-board-api";
+type HimalayasJob = { guid?: string; title?: string; companyName?: string; companyLogo?: string; excerpt?: string; description?: string; locationRestrictions?: string[]; categories?: string[]; parentCategories?: string[]; employmentType?: string; seniority?: string; pubDate?: string | number; applicationLink?: string; minSalary?: number | null; maxSalary?: number | null; currency?: string; salaryPeriod?: string };
+type HimalayasResponse = { jobs?: HimalayasJob[] };
+const HIMALAYAS_SOURCE_NAME = "Himalayas";
+const HIMALAYAS_SOURCE_URL = "https://himalayas.app/docs/remote-jobs-api";
 function mapArbeitnowJob(job: ArbeitnowJob, now = Date.now()): FreshJob | null {
   if (!job.title || !job.company_name || !job.created_at) return null;
   const createdMs = typeof job.created_at === "number" ? (job.created_at < 10_000_000_000 ? job.created_at * 1000 : job.created_at) : Date.parse(job.created_at);
@@ -281,6 +285,31 @@ async function fetchArbeitnow(): Promise<FreshJob[]> {
   const payload = (await response.json()) as ArbeitnowResponse;
   return (payload.data || []).map((job) => mapArbeitnowJob(job)).filter((job): job is FreshJob => job !== null);
 }
+
+function mapHimalayasJob(job: HimalayasJob, now = Date.now()): FreshJob | null {
+  if (!job.title || !job.companyName || !job.pubDate) return null;
+  const publishedMs = typeof job.pubDate === "number" ? (job.pubDate < 10_000_000_000 ? job.pubDate * 1000 : job.pubDate) : Date.parse(job.pubDate);
+  if (!Number.isFinite(publishedMs)) return null;
+  const ageMs = now - publishedMs;
+  if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const rawDescription = job.description || job.excerpt || "";
+  const description = stripMarkup(rawDescription).slice(0, 7000);
+  const company = stripMarkup(job.companyName);
+  const companyWebsite = extractCompanyWebsite(rawDescription);
+  const applyEmail = extractApplyEmail(rawDescription);
+  const salary = job.minSalary || job.maxSalary ? `${job.currency || ""} ${job.minSalary || "?"}–${job.maxSalary || "?"}${job.salaryPeriod ? ` / ${job.salaryPeriod}` : ""}`.trim() : undefined;
+  return { id: `himalayas-${job.guid || `${company}-${job.title}`}`, title: stripMarkup(job.title), company, companyLogo: job.companyLogo, geography: job.locationRestrictions?.join(", ") || "Worldwide / remote", industry: [...(job.categories || []), ...(job.parentCategories || [])].map(stripMarkup).filter(Boolean).slice(0, 8), jobType: job.employmentType ? [stripMarkup(job.employmentType)] : [], level: stripMarkup(job.seniority) || "Not specified", excerpt: stripMarkup(job.excerpt).slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.applicationLink), sourceName: HIMALAYAS_SOURCE_NAME, salary, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${company} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || job.applicationLink) };
+}
+
+async function fetchHimalayas(role: string, worldwide: boolean): Promise<FreshJob[]> {
+  const params = new URLSearchParams({ limit: "20" });
+  if (role) params.set("q", role);
+  if (worldwide) params.set("worldwide", "true");
+  const response = await fetch(`https://himalayas.app/jobs/api/search?${params.toString()}`, { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) });
+  if (!response.ok) return [];
+  const payload = (await response.json()) as HimalayasResponse;
+  return (payload.jobs || []).map((job) => mapHimalayasJob(job)).filter((job): job is FreshJob => job !== null);
+}
 function dedupeJobs(jobs: FreshJob[]) {
   const seen = new Set<string>();
   return jobs.filter((job) => { const key = `${job.company.toLowerCase()}|${job.title.toLowerCase()}|${job.sourceUrl}`; if (seen.has(key)) return false; seen.add(key); return true; });
@@ -290,10 +319,11 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   const geoScope = getJobicyGeoScope(input);
   const role = input.role.trim();
   const hasRole = role && role !== "All hiring roles";
-  const count = String(Math.min(Math.max(input.limit || 50, 1), 60));
+  const count = String(Math.min(Math.max(input.limit || 100, 1), 60));
 
   let jobs: FreshJob[] = [];
   let fallbackJobs: FreshJob[] = [];
+  let globalJobs: FreshJob[] = [];
   const providers: JobProviderStatus[] = [];
   try {
     if (hasRole) {
@@ -332,7 +362,13 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
   } catch (error) {
     providers.push({ name: ARBEITNOW_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
-  jobs = dedupeJobs([...jobs, ...fallbackJobs]).slice(0, Math.min(Math.max(input.limit || 50, 1), 100));
+  try {
+    globalJobs = (await fetchHimalayas(hasRole ? role : "", input.country === "Worldwide")).filter((job) => !hasRole || matchesRequestedRole(job, role));
+    providers.push({ name: HIMALAYAS_SOURCE_NAME, status: globalJobs.length > 0 ? "ok" : "empty", resultCount: globalJobs.length });
+  } catch (error) {
+    providers.push({ name: HIMALAYAS_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
+  }
+  jobs = dedupeJobs([...jobs, ...fallbackJobs, ...globalJobs]).slice(0, Math.min(Math.max(input.limit || 100, 1), 150));
   return {
     jobs,
     sourceName: jobs.length > 0 ? [...new Set(jobs.map((job) => job.sourceName))].join(" + ") : `${JOBICY_SOURCE_NAME} + ${ARBEITNOW_SOURCE_NAME}`,
