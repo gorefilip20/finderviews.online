@@ -28,6 +28,7 @@ import {
   Globe2,
   LoaderCircle,
   Mail,
+  MessageCircle,
   MapPin,
   Menu,
   Phone,
@@ -50,6 +51,7 @@ type Lead = {
   location: string;
   phone: string;
   email?: string;
+  website?: string;
   address?: string;
   verified: boolean;
   hasWebsite: boolean;
@@ -57,6 +59,7 @@ type Lead = {
   growthPath: string;
   position?: { lat: number; lng: number };
   source?: string;
+  contactSearchUrl?: string;
   preview?: boolean;
   presence: "No website listed" | "Limited public presence";
 };
@@ -410,7 +413,8 @@ export default function Home() {
           category: businessType.replaceAll("_", " "),
           location: [tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(", ") || marketLabel,
           phone: tags.phone || tags["contact:phone"] || "No public phone listed",
-          email: tags.email || tags["contact:email"] ? "Public email available" : undefined,
+          email: tags.email || tags["contact:email"] || undefined,
+          website: tags.website || tags["contact:website"] || tags.url || undefined,
           address: [tags["addr:housenumber"], tags["addr:street"], tags["addr:city"]].filter(Boolean).join(", ") || undefined,
           verified: true,
           hasWebsite,
@@ -418,6 +422,7 @@ export default function Home() {
           growthPath: "Review presence and propose next step",
           position: { lat, lng: lon },
           source: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+          contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${tags.name} ${[tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(" ")} official contact`)}`,
           presence: hasNoWebsite ? "No website listed" : "Limited public presence",
         });
         return results;
@@ -474,6 +479,14 @@ export default function Home() {
       if (!response.ok) throw new Error("draft failed");
       toast.success("Message draft saved for review. Nothing was sent automatically.");
     } catch { toast.error("The message draft could not be saved."); }
+  };
+  const publicPhone = selectedLead?.phone && !selectedLead.phone.toLowerCase().includes("no public") ? selectedLead.phone : "";
+  const phoneHref = publicPhone ? `tel:${publicPhone.replace(/[^+\d]/g, "")}` : "";
+  const whatsappHref = publicPhone ? `https://wa.me/${publicPhone.replace(/\D/g, "")}?text=${encodeURIComponent(`Hello ${selectedLead?.name || "there"}, I found your public business listing and wanted to share a short idea about improving your online presence. Is this the right contact route?`)}` : "";
+  const openPublicContactSearch = () => {
+    if (selectedLead?.website) { window.open(selectedLead.website, "_blank", "noopener,noreferrer"); return; }
+    if (selectedLead?.contactSearchUrl) { window.open(selectedLead.contactSearchUrl, "_blank", "noopener,noreferrer"); return; }
+    toast.message("No public website or contact route was listed. Verify the business manually before reaching out.");
   };
 
   const saveSelectedJobToOutreach = async () => {
@@ -788,7 +801,8 @@ export default function Home() {
                     <div><UserRoundCheck size={16} /><span><small>BEST CONTACT</small>Owner or manager</span></div>
                   </div>
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
-                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Draft message</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
+                  <div className="contact-action-grid">{selectedLead.email ? <a className="contact-action contact-action--email" href={`mailto:${selectedLead.email}?subject=${encodeURIComponent(`A simple website idea for ${selectedLead.name}`)}`}><Mail size={15} /> Email {selectedLead.email}</a> : <button className="contact-action" onClick={() => void createLocalLeadDraft()}><Mail size={15} /> Draft message</button>}{phoneHref && <a className="contact-action" href={phoneHref}><Phone size={15} /> Call {selectedLead.phone}</a>}{whatsappHref && <a className="contact-action" href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp / message</a>}<button className="contact-action" onClick={openPublicContactSearch}><ExternalLink size={15} /> Public website / contact</button></div>
+                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Save email draft</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
                   <small className="detail-source-note">Public listing data only. Verify the website gap and use the business’s preferred contact route before sending.</small>
                 </div>
               ) : <div className="detail-empty"><Target size={26} /><strong>Select a business record</strong><span>Details, contact clues, and a useful growth angle will appear here.</span></div>}

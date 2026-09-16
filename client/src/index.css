@@ -210,6 +210,10 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .detail-actions .button-secondary { display: inline-flex; align-items: center; justify-content: center; gap: .42rem; padding: .75rem .78rem; border: 1px solid #aeb8aa; border-radius: .62rem; background: #edf2e8; color: #314333; font-size: .66rem; font-weight: 800; }
 .detail-actions .button-secondary:hover { border-color: #1d241f; background: #e1ecd2; }
 .detail-source-note { display: block; margin-top: .72rem; color: #718071; font-size: .59rem; line-height: 1.45; }
+.contact-action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; margin-top: .85rem; }
+.contact-action { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-width: 0; padding: .62rem .55rem; border: 1px solid #c9d1c4; border-radius: .48rem; background: #eef3e9; color: #304331; font-size: .59rem; font-weight: 800; text-align: center; text-decoration: none; cursor: pointer; }
+.contact-action:hover { border-color: #91a681; background: #e4eddc; }
+.contact-action--email { background: #dff0c8; border-color: #b5d092; }
 .icon-outline { display: grid; width: 39px; height: 39px; place-items: center; padding: 0; border: 1px solid #1d241f; border-radius: .62rem; background: transparent; color: #1d241f; }
 .icon-outline:hover { background: #c8ff3d; }
 .detail-empty { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: .56rem; padding: 2rem; color: #687269; text-align: center; }
