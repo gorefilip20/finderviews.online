@@ -339,7 +339,7 @@ export default function Home() {
         }
       })();
 
-      const overpassQuery = `[out:json][timeout:25];(${categoryUnionMembers.join("")});out center body 50;`;
+      const overpassQuery = `[out:json][timeout:15];(${categoryUnionMembers.join("")});out center tags 50;`;
       let overpassData: {
         elements: Array<{
           id: number;
@@ -351,26 +351,32 @@ export default function Home() {
         }>;
       };
       try {
-        const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
-          method: "POST",
-          body: `data=${encodeURIComponent(overpassQuery)}`,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        });
-        if (!overpassRes.ok) {
-          setLeads([]);
-          setSelectedLead(null);
-          setUsingPreview(false);
-          if (overpassRes.status === 429) {
-            toast.error("The data source is rate-limited. Wait a moment and try again.");
-          } else if (overpassRes.status === 504 || overpassRes.status === 408) {
-            toast.message("That area timed out. Try narrowing your search with a specific city name.");
-          } else {
-            toast.message("The data source returned an error. Try a different city or category.");
-          }
-          setIsSearching(false);
-          return;
+        const overpassEndpoints = [
+          "https://overpass.kumi.systems/api/interpreter",
+          "https://overpass-api.de/api/interpreter",
+          "https://overpass.private.coffee/api/interpreter",
+        ];
+        let overpassRes: Response | null = null;
+        for (const endpoint of overpassEndpoints) {
+          try {
+            const candidate = await fetch(endpoint, {
+              method: "POST",
+              body: `data=${encodeURIComponent(overpassQuery)}`,
+              headers: { "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Finderviews/1.0 public research tool" },
+              signal: AbortSignal.timeout(15000),
+            });
+            if (candidate.ok) { overpassRes = candidate; break; }
+          } catch { /* try the next public mirror */ }
         }
-        overpassData = (await overpassRes.json()) as typeof overpassData;
+        if (overpassRes) {
+          overpassData = (await overpassRes.json()) as typeof overpassData;
+        } else {
+          const fallbackTerm = category === "All local businesses" ? "business" : category;
+          const fallbackRes = await fetch(`https://nominatim.openstreetmap.org/search?${new URLSearchParams({ q: `${fallbackTerm} in ${marketLabel}`, format: "json", limit: "50", addressdetails: "1", extratags: "1", namedetails: "1" })}`, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) });
+          if (!fallbackRes.ok) throw new Error("public directory unavailable");
+          const fallbackData = await fallbackRes.json() as Array<{ osm_id: number; osm_type: string; lat: string; lon: string; display_name?: string; name?: string; extratags?: Record<string, string>; address?: Record<string, string> }>;
+          overpassData = { elements: fallbackData.map((item) => ({ id: item.osm_id, type: item.osm_type.toLowerCase(), lat: parseFloat(item.lat), lon: parseFloat(item.lon), tags: { name: item.name || item.display_name?.split(",")[0] || fallbackTerm, ...(item.extratags || {}), "addr:city": item.address?.city || item.address?.town || item.address?.village || "", "addr:state": item.address?.state || "", "addr:street": item.address?.road || "" } })) };
+        }
       } catch {
         setLeads([]);
         setSelectedLead(null);
@@ -768,6 +774,7 @@ export default function Home() {
                   <div className="detail-facts">
                     <div><Phone size={16} /><span><small>PUBLIC PHONE</small>{selectedLead.phone}</span></div>
                     <div><MapPin size={16} /><span><small>LISTED AREA</small>{selectedLead.address || selectedLead.location}</span></div>
+                    <div><UserRoundCheck size={16} /><span><small>BEST CONTACT</small>Owner or manager</span></div>
                   </div>
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
                   <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Draft message</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
@@ -822,8 +829,8 @@ export default function Home() {
                 <h3>{selectedJob.title}</h3>
                 <p>{selectedJob.excerpt || "This fresh listing signals a current hiring need. Review the public source before reaching out."}</p>
                 <div className="hiring-detail-facts"><div><MapPin size={16} /><span><small>SOURCE GEOGRAPHY</small>{selectedJob.geography}</span></div><div><BriefcaseBusiness size={16} /><span><small>ROLE TYPE</small>{selectedJob.jobType.join(" · ") || "Not specified"}</span></div>{selectedJob.salary && <div><Target size={16} /><span><small>LISTED RANGE</small>{selectedJob.salary}</span></div>}</div>
-                <div className="company-contact-results"><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
-                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">View public job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save to outreach"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+                <div className="company-contact-results"><div><small>BEST CONTACT ROLE</small><span>Hiring manager, team lead, or talent acquisition</span></div><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
+                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply / view job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save for pitch"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
             </aside>
