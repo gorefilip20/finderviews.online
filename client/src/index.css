@@ -429,6 +429,29 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .employer-fields__wide { grid-column:1 / -1; }
 .employer-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1rem; }
 .employer-actions small { color:#7e897e; font-size:.62rem; }
+.opportunity-cockpit { padding:7rem max(3.25rem, calc((100vw - 1348px) / 2)); background:#e7e5de; }
+.opportunity-cockpit__head { display:grid; grid-template-columns:1fr 1fr; gap:5rem; align-items:end; }
+.opportunity-cockpit__head h2 { margin:.8rem 0 0; color:#1d241f; font-family:"Space Grotesk",sans-serif; font-size:clamp(2.2rem,4.5vw,4.3rem); line-height:.95; letter-spacing:-.07em; }
+.opportunity-cockpit__head h2 em { color:#73826d; font-style:normal; }
+.opportunity-cockpit__head p { max-width:480px; margin:0; color:#657064; font-size:.84rem; line-height:1.7; }
+.opportunity-cockpit__grid { display:grid; grid-template-columns:.92fr 1.08fr; gap:1rem; margin-top:3rem; }
+.pitch-profile-card, .pitch-preview-card { padding:1.2rem; border:1px solid rgba(29,36,31,.16); border-radius:.75rem; background:#f7f6f1; }
+.pitch-fields { display:grid; gap:.75rem; margin-top:1.2rem; }
+.pitch-fields label { display:grid; gap:.35rem; }
+.pitch-fields label > span { color:#7e897e; font-family:"DM Mono",monospace; font-size:.55rem; font-weight:800; }
+.pitch-fields input, .pitch-fields select { width:100%; padding:.68rem; border:1px solid rgba(29,36,31,.18); border-radius:.5rem; background:#fff; color:#1d241f; font:inherit; font-size:.7rem; }
+.pitch-profile-card .button-dark { margin-top:1rem; padding:.75rem .9rem; }
+.pitch-preview-card__top { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.pitch-preview-card__top .text-link { font-size:.65rem; }
+.pitch-preview-card > p { min-height:150px; margin:1.4rem 0 0; padding:1rem; border-radius:.6rem; background:#eef0e8; color:#344336; font-size:.78rem; line-height:1.7; }
+.next-move { display:flex; gap:.55rem; margin-top:1rem; padding:.8rem; border:1px solid #ccd7bf; border-radius:.55rem; background:#edf3e5; }
+.next-move > div { display:grid; gap:.2rem; }
+.next-move small { color:#6c7c67; font-family:"DM Mono",monospace; font-size:.52rem; }
+.next-move strong { color:#304531; font-size:.68rem; line-height:1.4; }
+.cockpit-actions { display:flex; gap:.55rem; margin-top:1rem; }
+.cockpit-actions button { margin:0; padding:.75rem .9rem; }
+.cockpit-actions .button-primary { flex:1; }
+.cockpit-actions .button-secondary { display:inline-flex; align-items:center; justify-content:center; gap:.4rem; border:1px solid #aeb8aa; border-radius:.62rem; background:#edf2e8; color:#314333; font-size:.68rem; font-weight:800; }
 .community-compose textarea { display:block; width:100%; min-height:130px; margin:1rem 0; padding:.8rem; border:1px solid rgba(29,36,31,.18); border-radius:.5rem; resize:vertical; background:#fff; color:#1d241f; font:inherit; font-size:.72rem; line-height:1.5; }
 .community-compose > div { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
 .community-compose small { color:#7e897e; font-family:"DM Mono",monospace; font-size:.55rem; }
@@ -472,6 +495,10 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
   .method-icon { margin-top: 1.5rem; }
   .method-item h3 { margin-top: 1.35rem; }
   .community-section { padding:4.7rem 1.15rem; }
+  .opportunity-cockpit { padding:4.7rem 1.15rem; }
+  .opportunity-cockpit__head, .opportunity-cockpit__grid { grid-template-columns:1fr; gap:1.5rem; }
+  .pitch-preview-card > p { min-height:0; }
+  .cockpit-actions { flex-direction:column; }
   .employer-section { padding:4.7rem 1.15rem; }
   .employer-head, .employer-fields { grid-template-columns:1fr; }
   .employer-head { gap:1.3rem; }
