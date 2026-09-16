@@ -295,6 +295,16 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .company-contact-results a, .company-contact-results span { display: inline-flex; align-items: center; gap: .26rem; color: #e6ede2; font-size: .64rem; font-weight: 700; line-height: 1.38; overflow-wrap: anywhere; }
 .company-contact-results span { color: #aeb8ad; font-weight: 600; }
 .company-contact-results .public-listing-link { padding-top: .48rem; border-top: 1px solid rgba(247,246,241,.15); color: #c8ff3d; }
+.recruiter-tools { display: grid; gap: .42rem; margin-top: .68rem; padding: .7rem; border-radius: .58rem; background: rgba(200,255,61,.08); }
+.recruiter-tools div { display: grid; gap: .16rem; }
+.recruiter-tools small, .application-checklist > small { color: #9caf99; font-family: "DM Mono", monospace; font-size: .48rem; letter-spacing: .05em; }
+.recruiter-tools strong { color: #e3ebe0; font-size: .62rem; line-height: 1.35; }
+.recruiter-tools a { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; padding: .52rem; border: 1px solid rgba(200,255,61,.48); border-radius: .45rem; color: #c8ff3d; font-size: .59rem; font-weight: 850; text-decoration: none; }
+.application-checklist { display: grid; gap: .4rem; margin-top: .68rem; padding: .72rem; border: 1px solid rgba(247,246,241,.15); border-radius: .58rem; background: rgba(247,246,241,.05); }
+.application-checklist > span { display: flex; align-items: center; gap: .35rem; color: #c7d2c4; font-size: .59rem; }
+.application-checklist > span svg { flex: none; color: #c8ff3d; }
+.application-checklist button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; margin-top: .15rem; padding: .52rem; border: 1px solid rgba(247,246,241,.28); border-radius: .45rem; background: transparent; color: #f7f6f1; font-size: .58rem; font-weight: 800; }
+.application-checklist button:hover { border-color: #c8ff3d; color: #c8ff3d; }
 .hiring-detail-actions { display: grid; grid-template-columns: 1fr 1.1fr; gap: .5rem; margin-top: 1rem; }
 .view-source-button, .brief-button { display: inline-flex; align-items: center; justify-content: center; gap: .42rem; min-height: 39px; border-radius: .57rem; font-size: .64rem; font-weight: 850; }
 .view-source-button { border: 1px solid rgba(247,246,241,.45); color: #f7f6f1; }

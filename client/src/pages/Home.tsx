@@ -21,6 +21,7 @@ import {
   ChevronDown,
   CircleHelp,
   Compass,
+  Copy,
   Crosshair,
   Download,
   ExternalLink,
@@ -599,6 +600,12 @@ export default function Home() {
       sourceUrl: selectedJob.sourceUrl,
     });
   };
+  const recruiterSearchUrl = selectedJob ? `https://www.google.com/search?q=${encodeURIComponent(`${selectedJob.company} ${selectedJob.title} recruiter hiring manager LinkedIn`)}` : "";
+  const applicationMessage = selectedJob ? `Hello ${selectedJob.company} hiring team,\n\nI’m applying for the ${selectedJob.title} role because my experience in ${pitchProfile.offer.toLowerCase()} can help with the work described in the public listing. ${pitchProfile.proof ? `Relevant proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}. ` : ""}I would welcome the chance to explain how I could contribute.\n\nBest,\n${pitchProfile.name || "[Your name]"}` : "";
+  const copyApplicationMessage = async () => {
+    if (!applicationMessage) return;
+    try { await navigator.clipboard.writeText(applicationMessage); toast.success("Tailored application message copied. Personalize it before sending."); } catch { toast.message("Copy is unavailable; select the message manually."); }
+  };
 
 
   return (
@@ -855,6 +862,8 @@ export default function Home() {
                 <p>{selectedJob.excerpt || "This fresh listing signals a current hiring need. Review the public source before reaching out."}</p>
                 <div className="hiring-detail-facts"><div><MapPin size={16} /><span><small>SOURCE GEOGRAPHY</small>{selectedJob.geography}</span></div><div><BriefcaseBusiness size={16} /><span><small>ROLE TYPE</small>{selectedJob.jobType.join(" · ") || "Not specified"}</span></div>{selectedJob.salary && <div><Target size={16} /><span><small>LISTED RANGE</small>{selectedJob.salary}</span></div>}</div>
                 <div className="company-contact-results"><div><small>BEST CONTACT ROLE</small><span>Hiring manager, team lead, or talent acquisition</span></div><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
+                <div className="recruiter-tools"><div><small>FIND THE RIGHT PERSON</small><strong>Search the company, role, and recruiter title together</strong></div><a href={recruiterSearchUrl} target="_blank" rel="noreferrer"><UsersRound size={15} /> Find recruiter / hiring manager <ExternalLink size={13} /></a></div>
+                <div className="application-checklist"><small>APPLICATION READINESS CHECK</small><span><Check size={14} /> Match your first two lines to the job title</span><span><Check size={14} /> Include one proof point, not a generic claim</span><span><Check size={14} /> Use the original application route before cold outreach</span><button onClick={() => void copyApplicationMessage()}><Copy size={14} /> Copy tailored application message</button></div>
                 <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply / view job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save for pitch"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
