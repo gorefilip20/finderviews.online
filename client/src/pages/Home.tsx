@@ -439,7 +439,7 @@ export default function Home() {
 
   const saveLeadToOutreach = async (lead: Lead) => {
     if (!isAuthenticated) { toast.message("Sign in to sync saved leads and outreach drafts across devices."); startLogin(); return; }
-    const response = await fetch("/api/outreach/leads", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: lead.name, company: lead.name, sourceUrl: lead.source || "https://www.openstreetmap.org/", geography: lead.location, contactUrl: lead.source }) });
+    const response = await fetch("/api/outreach/leads", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: lead.name, company: lead.name, sourceUrl: lead.source || "https://www.openstreetmap.org/", geography: lead.location, contactEmail: lead.email, contactUrl: lead.source }) });
     if (!response.ok) throw new Error("lead save failed");
     toast.success("Lead added to your outreach queue.");
   };
@@ -452,6 +452,19 @@ export default function Home() {
       toast.success(saved ? "Lead removed from your outreach set." : "Lead saved to your outreach set.");
       return saved ? current.filter((value) => value !== id) : [...current, id];
     });
+  };
+  const createLocalLeadDraft = async () => {
+    if (!selectedLead) return;
+    if (!selectedLead.email || !/^\S+@\S+\.\S+$/.test(selectedLead.email)) {
+      toast.message("No public email is listed for this business. Use the public phone or listing link and respect the business's preferred contact route.");
+      return;
+    }
+    if (!isAuthenticated) { toast.message("Sign in to create an outreach draft."); startLogin(); return; }
+    try {
+      const response = await fetch("/api/outreach/drafts", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: selectedLead.email, subject: `A simple website idea for ${selectedLead.name}`, text: `Hello ${selectedLead.name} team,\n\nI found your public business listing while researching ${selectedLead.category.toLowerCase()} businesses in ${selectedLead.location}. I noticed that no standalone website is listed, so I wanted to ask whether improving your online presence is something you are considering.\n\nIf useful, I can share a short, no-pressure idea tailored to your business.\n\nBest,\n[Your name]\n\nPublic listing: ${selectedLead.source || "https://www.openstreetmap.org/"}`, leadId: selectedLead.source || selectedLead.id }) });
+      if (!response.ok) throw new Error("draft failed");
+      toast.success("Message draft saved for review. Nothing was sent automatically.");
+    } catch { toast.error("The message draft could not be saved."); }
   };
 
   const saveSelectedJobToOutreach = async () => {
@@ -757,7 +770,8 @@ export default function Home() {
                     <div><MapPin size={16} /><span><small>LISTED AREA</small>{selectedLead.address || selectedLead.location}</span></div>
                   </div>
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
-                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button><button className="icon-outline" onClick={() => toast.message("Open the public source from a live research result.")} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
+                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Draft message</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
+                  <small className="detail-source-note">Public listing data only. Verify the website gap and use the business’s preferred contact route before sending.</small>
                 </div>
               ) : <div className="detail-empty"><Target size={26} /><strong>Select a business record</strong><span>Details, contact clues, and a useful growth angle will appear here.</span></div>}
             </aside>
