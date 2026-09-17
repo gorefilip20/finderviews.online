@@ -130,6 +130,7 @@ export default function Home() {
   const [jobSearchRequested, setJobSearchRequested] = useState(true);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [approvedBriefFor, setApprovedBriefFor] = useState<string | null>(null);
+  const [applicationStatuses, setApplicationStatuses] = useState<Record<string, "saved" | "ready" | "applied" | "interview" | "closed">>({});
   const [jobAlertEnabled, setJobAlertEnabled] = useState(false);
   const [alertEmail, setAlertEmail] = useState("");
   const [communityText, setCommunityText] = useState("");
@@ -171,6 +172,9 @@ export default function Home() {
       if (savedProfile) setProfile(savedProfile);
       const savedPitch = JSON.parse(localStorage.getItem("finderviews-pitch-profile") || "null");
       if (savedPitch) setPitchProfile((current) => ({ ...current, ...savedPitch }));
+      const savedApplicationStatuses = JSON.parse(localStorage.getItem("finderviews-application-statuses") || "{}");
+      if (savedApplicationStatuses && typeof savedApplicationStatuses === "object") setApplicationStatuses(savedApplicationStatuses);
+
     } catch { /* local storage can be unavailable in private browsing */ }
     fetch("https://countriesnow.space/api/v0.1/countries/states").then((response) => response.ok ? response.json() : null).then((payload) => { if (Array.isArray(payload?.data)) setLocationDirectory(payload.data); }).catch(() => undefined);
     const syncPosts = (event: StorageEvent) => { if (event.key === "finderviews-community-posts") { try { const next = JSON.parse(event.newValue || "[]"); if (Array.isArray(next)) setCommunityPosts(next.slice(0, 12)); } catch { /* ignore malformed local data */ } } };
@@ -509,6 +513,22 @@ export default function Home() {
       if (!response.ok) throw new Error("draft failed");
       toast.success("Draft saved for review. Nothing was sent automatically.");
     } catch { toast.error("The outreach draft could not be saved."); }
+  };
+
+  const updateApplicationStatus = (status: "saved" | "ready" | "applied" | "interview" | "closed") => {
+    if (!selectedJob) return;
+    setApplicationStatuses((current) => {
+      const next = { ...current, [selectedJob.sourceUrl]: status };
+      localStorage.setItem("finderviews-application-statuses", JSON.stringify(next));
+      return next;
+    });
+    toast.success(status === "applied" ? "Marked applied. Keep the employer confirmation in your records." : "Application status updated.");
+  };
+
+  const copyApplicationMessage = async () => {
+    if (!selectedJob) return;
+    const message = `Hello ${selectedJob.company} team,\n\nI am applying for the ${selectedJob.title} role. The work described in the public listing aligns with my experience, and I would welcome the opportunity to discuss how I can contribute.\n\nI have included my application through the original listing and would be happy to provide any additional information.\n\nBest,\n[Your name]\n\nPublic listing: ${selectedJob.sourceUrl}`;
+    try { await navigator.clipboard.writeText(message); toast.success("Application message copied. Personalize it before sending."); } catch { toast.message("Copy is unavailable; open the original listing and write your message there."); }
   };
 
   const exportPreview = () => {
@@ -861,10 +881,16 @@ export default function Home() {
                 <h3>{selectedJob.title}</h3>
                 <p>{selectedJob.excerpt || "This fresh listing signals a current hiring need. Review the public source before reaching out."}</p>
                 <div className="hiring-detail-facts"><div><MapPin size={16} /><span><small>SOURCE GEOGRAPHY</small>{selectedJob.geography}</span></div><div><BriefcaseBusiness size={16} /><span><small>ROLE TYPE</small>{selectedJob.jobType.join(" · ") || "Not specified"}</span></div>{selectedJob.salary && <div><Target size={16} /><span><small>LISTED RANGE</small>{selectedJob.salary}</span></div>}</div>
+<<<<<<< HEAD
                 <div className="company-contact-results"><div><small>BEST CONTACT ROLE</small><span>Hiring manager, team lead, or talent acquisition</span></div><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
                 <div className="recruiter-tools"><div><small>FIND THE RIGHT PERSON</small><strong>Search the company, role, and recruiter title together</strong></div><a href={recruiterSearchUrl} target="_blank" rel="noreferrer"><UsersRound size={15} /> Find recruiter / hiring manager <ExternalLink size={13} /></a></div>
-                <div className="application-checklist"><small>APPLICATION READINESS CHECK</small><span><Check size={14} /> Match your first two lines to the job title</span><span><Check size={14} /> Include one proof point, not a generic claim</span><span><Check size={14} /> Use the original application route before cold outreach</span><button onClick={() => void copyApplicationMessage()}><Copy size={14} /> Copy tailored application message</button></div>
+                <div className="application-checklist"><small>APPLICATION READINESS CHECK</small><div className="application-status-row"><small>APPLICATION STATUS</small><select aria-label="Application status" value={applicationStatuses[selectedJob.sourceUrl] || "ready"} onChange={(event) => updateApplicationStatus(event.target.value as "saved" | "ready" | "applied" | "interview" | "closed")}><option value="saved">Saved</option><option value="ready">Ready to apply</option><option value="applied">Applied</option><option value="interview">Interview</option><option value="closed">Closed</option></select></div><span><Check size={14} /> Match your first two lines to the job title</span><span><Check size={14} /> Include one proof point, not a generic claim</span><span><Check size={14} /> Use the original application route before cold outreach</span><button onClick={() => void copyApplicationMessage()}><Copy size={14} /> Copy tailored application message</button></div>
                 <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply / view job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save for pitch"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+=======
+                <div className="company-contact-results"><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
+                <div className="application-checklist"><small>APPLICATION READINESS</small><span>1. Review the original employer listing.</span><span>2. Personalize your materials before sending.</span><span>3. Track the outcome here after you apply.</span><div className="application-checklist__actions"><select aria-label="Application status" value={applicationStatuses[selectedJob.sourceUrl] || "ready"} onChange={(event) => updateApplicationStatus(event.target.value as "saved" | "ready" | "applied" | "interview" | "closed")}><option value="saved">Saved</option><option value="ready">Ready to apply</option><option value="applied">Applied</option><option value="interview">Interview</option><option value="closed">Closed</option></select><button onClick={copyApplicationMessage}>Copy tailored application message</button></div></div>
+                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">View public job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save to outreach"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+>>>>>>> e65b4b8 (Add application readiness and status tracking)
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
             </aside>
