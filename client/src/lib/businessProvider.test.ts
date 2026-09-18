@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OVERPASS_ENDPOINTS, fetchBusinessDirectoryFallback, fetchOverpassData } from "./businessProvider";
+import { OVERPASS_ENDPOINTS, PHOTON_CONCURRENCY_LIMIT, fetchBusinessDirectoryFallback, fetchOverpassData, fetchPhotonData } from "./businessProvider";
 
 describe("business provider requests", () => {
   it("returns the first healthy mirror without waiting for a slow mirror", async () => {
@@ -38,5 +38,35 @@ describe("business provider requests", () => {
 
     expect(result.elements).toHaveLength(1);
     expect(result.elements[0]).toMatchObject({ type: "node", lat: 48.8566, lon: 2.3522, tags: { name: "Paris Cafe", "addr:city": "Paris" } });
+  });
+
+  it("retries HTTP 503 with exponential backoff before succeeding", async () => {
+    let calls = 0;
+    const fetchMock: typeof fetch = async () => {
+      calls += 1;
+      if (calls < 3) return new Response("busy", { status: 503 });
+      return new Response(JSON.stringify({ features: [{ properties: { name: "Berlin Cafe" } }] }), { status: 200 });
+    };
+
+    const result = await fetchPhotonData("restaurant Berlin Germany", fetchMock, { backoffBaseMs: 1, timeoutMs: 50 });
+
+    expect(calls).toBe(3);
+    expect(result?.features[0]?.properties?.name).toBe("Berlin Cafe");
+  });
+
+  it("never runs more than eight Photon requests at once", async () => {
+    let active = 0;
+    let peak = 0;
+    const fetchMock: typeof fetch = async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return new Response(JSON.stringify({ features: [] }), { status: 200 });
+    };
+
+    await Promise.all(Array.from({ length: 16 }, (_, index) => fetchPhotonData(`city-${index}`, fetchMock, { timeoutMs: 50 })));
+
+    expect(peak).toBe(PHOTON_CONCURRENCY_LIMIT);
   });
 });
