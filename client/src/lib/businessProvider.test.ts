@@ -31,13 +31,13 @@ describe("business provider requests", () => {
   it("falls back to Photon when Nominatim returns no European businesses", async () => {
     const fetchMock: typeof fetch = async (url) => {
       if (String(url).includes("nominatim")) return new Response("[]", { status: 200 });
-      return new Response(JSON.stringify({ features: [{ geometry: { coordinates: [2.3522, 48.8566] }, properties: { name: "Paris Cafe", city: "Paris", state: "Île-de-France" } }] }), { status: 200 });
+      return new Response(JSON.stringify({ features: [{ geometry: { coordinates: [2.3522, 48.8566] }, properties: { name: "Paris Cafe", city: "Paris", state: "Île-de-France", street: "Rue de Rivoli", housenumber: "10", postcode: "75001", phone: "+33 1 23 45 67 89", email: "hello@pariscafe.test", website: "https://pariscafe.test" } }] }), { status: 200 });
     };
 
     const result = await fetchBusinessDirectoryFallback("Restaurant", "Paris, France", fetchMock);
 
     expect(result.elements).toHaveLength(1);
-    expect(result.elements[0]).toMatchObject({ type: "node", lat: 48.8566, lon: 2.3522, tags: { name: "Paris Cafe", "addr:city": "Paris" } });
+    expect(result.elements[0]).toMatchObject({ type: "node", lat: 48.8566, lon: 2.3522, tags: { name: "Paris Cafe", phone: "+33 1 23 45 67 89", email: "hello@pariscafe.test", website: "https://pariscafe.test", "addr:city": "Paris", "addr:housenumber": "10", "addr:postcode": "75001" } });
   });
 
   it("retries HTTP 503 with exponential backoff before succeeding", async () => {

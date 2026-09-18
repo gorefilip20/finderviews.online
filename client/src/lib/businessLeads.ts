@@ -12,6 +12,7 @@ export type BusinessLead = {
   score: number;
   growthPath: string;
   position?: { lat: number; lng: number };
+  mapUrl?: string;
   source?: string;
   contactSearchUrl?: string;
   preview?: boolean;
@@ -46,7 +47,7 @@ export type LeadMappingOptions = {
 };
 
 function contactValue(tags: Record<string, string>, key: string): string | undefined {
-  return tags[key] || tags[`contact:${key}`] || undefined;
+  return tags[key] || tags[`contact:${key}`] || tags[`contact_${key}`] || undefined;
 }
 
 export function mapBusinessRecords(records: BusinessRecord[], options: LeadMappingOptions): BusinessLead[] {
@@ -57,8 +58,8 @@ export function mapBusinessRecords(records: BusinessRecord[], options: LeadMappi
     if (lat === undefined || lon === undefined || !Number.isFinite(lat) || !Number.isFinite(lon)) return results;
 
     const tags = record.tags;
-    const website = contactValue(tags, "website") || tags.url;
-    const phone = contactValue(tags, "phone");
+    const website = contactValue(tags, "website") || tags.url || contactValue(tags, "homepage");
+    const phone = contactValue(tags, "phone") || contactValue(tags, "mobile");
     const email = contactValue(tags, "email");
     const hasWebsite = Boolean(website);
     const hasLimitedPublicPresence = !hasWebsite || !phone;
@@ -78,12 +79,13 @@ export function mapBusinessRecords(records: BusinessRecord[], options: LeadMappi
       phone: phone || "No public phone listed",
       email,
       website,
-      address: [tags["addr:housenumber"], tags["addr:street"], tags["addr:city"]].filter(Boolean).join(", ") || undefined,
+      address: [tags["addr:housenumber"], tags["addr:street"], tags["addr:postcode"], tags["addr:city"]].filter(Boolean).join(", ") || undefined,
       verified: true,
       hasWebsite,
       score: 80,
       growthPath: "Review presence and propose next step",
       position: { lat, lng: lon },
+      mapUrl: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}`,
       source: `https://www.openstreetmap.org/${record.type}/${record.id}`,
       contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${tags.name} ${[tags["addr:city"], tags["addr:state"], options.country].filter(Boolean).join(" ")} official contact`)}`,
       presence: !hasWebsite ? "No website listed" : "Limited public presence",
@@ -104,6 +106,8 @@ export function mapNominatimRecords(records: NominatimBusinessRecord[], options:
       "addr:city": record.address?.city || record.address?.town || record.address?.village || "",
       "addr:state": record.address?.state || "",
       "addr:street": record.address?.road || "",
+      "addr:housenumber": record.address?.house_number || "",
+      "addr:postcode": record.address?.postcode || "",
     },
   })), options);
 }

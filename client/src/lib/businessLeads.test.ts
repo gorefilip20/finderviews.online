@@ -20,6 +20,9 @@ describe("business lead search mapping", () => {
           name: "Krispy Kreme",
           amenity: "restaurant",
           "addr:city": "Dallas",
+          "addr:housenumber": "123",
+          "addr:street": "Main Street",
+          "addr:postcode": "75201",
           phone: "+1 214 555 0100",
           email: "hello@example.test",
         },
@@ -33,6 +36,8 @@ describe("business lead search mapping", () => {
       presence: "No website listed",
       phone: "+1 214 555 0100",
       email: "hello@example.test",
+      address: "123, Main Street, 75201, Dallas",
+      mapUrl: "https://www.openstreetmap.org/?mlat=32.78&mlon=-96.8#map=18/32.78/-96.8",
       contactSearchUrl: expect.stringContaining("official%20contact"),
     });
   });
@@ -61,8 +66,8 @@ describe("business lead search mapping", () => {
         lat: "32.781",
         lon: "-96.801",
         display_name: "Fallback Bakery, Dallas, Texas",
-        extratags: { phone: "+1 214 555 0111" },
-        address: { city: "Dallas", state: "Texas", road: "Main Street" },
+        extratags: { phone: "+1 214 555 0111", email: "bakery@example.test" },
+        address: { city: "Dallas", state: "Texas", road: "Main Street", house_number: "123", postcode: "75201" },
       },
     ], options);
 
@@ -71,6 +76,8 @@ describe("business lead search mapping", () => {
       name: "Fallback Bakery",
       hasWebsite: false,
       phone: "+1 214 555 0111",
+      email: "bakery@example.test",
+      address: "123, Main Street, 75201, Dallas",
       location: "Dallas, Texas, United States",
     });
   });

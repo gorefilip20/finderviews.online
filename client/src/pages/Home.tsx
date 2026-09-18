@@ -8,6 +8,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isExcludedMarket } from "@/lib/marketCoverage";
 import { fetchOverpassData, fetchBusinessDirectoryFallback, type OverpassData } from "@/lib/businessProvider";
+import { mapBusinessRecords } from "@/lib/businessLeads";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import {
@@ -60,6 +61,7 @@ type Lead = {
   score: number;
   growthPath: string;
   position?: { lat: number; lng: number };
+  mapUrl?: string;
   source?: string;
   contactSearchUrl?: string;
   preview?: boolean;
@@ -407,41 +409,15 @@ export default function Home() {
         return;
       }
 
-      const nextLeads = overpassData.elements.reduce<Lead[]>((results, el) => {
-        if (!el.tags?.name) return results;
-        const lat = el.lat ?? el.center?.lat;
-        const lon = el.lon ?? el.center?.lon;
-        if (lat === undefined || lon === undefined) return results;
-        const tags = el.tags;
-        const hasWebsite = !!(tags.website || tags["contact:website"] || tags.url);
-        const hasPhone = !!(tags.phone || tags["contact:phone"]);
-        const hasNoWebsite = !hasWebsite;
-        const hasLimitedPublicPresence = !hasWebsite || !hasPhone;
-        const qualifies = presenceMode === "No listed website" ? hasNoWebsite
-          : presenceMode === "Limited public presence" ? hasLimitedPublicPresence
-          : hasNoWebsite || hasLimitedPublicPresence;
-        if (!qualifies) return results;
-        const businessType = tags.shop || tags.amenity || tags.office || tags.craft || category;
-        results.push({
-          id: `osm-${el.type}-${el.id}`,
-          name: tags.name,
-          category: businessType.replaceAll("_", " "),
-          location: [tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(", ") || marketLabel,
-          phone: tags.phone || tags["contact:phone"] || "No public phone listed",
-          email: tags.email || tags["contact:email"] || undefined,
-          website: tags.website || tags["contact:website"] || tags.url || undefined,
-          address: [tags["addr:housenumber"], tags["addr:street"], tags["addr:city"]].filter(Boolean).join(", ") || undefined,
-          verified: true,
-          hasWebsite,
-          score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
-          growthPath: "Review presence and propose next step",
-          position: { lat, lng: lon },
-          source: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-          contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${tags.name} ${[tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(" ")} official contact`)}`,
-          presence: hasNoWebsite ? "No website listed" : "Limited public presence",
-        });
-        return results;
-      }, []).slice(0, 12);
+      const nextLeads: Lead[] = mapBusinessRecords(overpassData.elements, {
+        country,
+        marketLabel,
+        category,
+        presenceMode,
+      }).map((lead) => ({
+        ...lead,
+        score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
+      }));
 
       if (nextLeads.length === 0) {
         setLeads([]);
@@ -864,7 +840,7 @@ export default function Home() {
                     <div><UserRoundCheck size={16} /><span><small>BEST CONTACT</small>Owner or manager</span></div>
                   </div>
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
-                  <div className="contact-action-grid">{selectedLead.email ? <a className="contact-action contact-action--email" href={`mailto:${selectedLead.email}?subject=${encodeURIComponent(`A simple website idea for ${selectedLead.name}`)}`}><Mail size={15} /> Email {selectedLead.email}</a> : <button className="contact-action" onClick={() => void createLocalLeadDraft()}><Mail size={15} /> Draft message</button>}{phoneHref && <a className="contact-action" href={phoneHref}><Phone size={15} /> Call {selectedLead.phone}</a>}{whatsappHref && <a className="contact-action" href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp / message</a>}<button className="contact-action" onClick={openPublicContactSearch}><ExternalLink size={15} /> Public website / contact</button></div>
+                  <div className="contact-action-grid">{selectedLead.email ? <a className="contact-action contact-action--email" href={`mailto:${selectedLead.email}?subject=${encodeURIComponent(`A simple website idea for ${selectedLead.name}`)}`}><Mail size={15} /> Email {selectedLead.email}</a> : <button className="contact-action" onClick={() => void createLocalLeadDraft()}><Mail size={15} /> Draft message</button>}{phoneHref && <a className="contact-action" href={phoneHref}><Phone size={15} /> Call {selectedLead.phone}</a>}{whatsappHref && <a className="contact-action" href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp / message</a>}<button className="contact-action" onClick={openPublicContactSearch}><ExternalLink size={15} /> Public website / contact</button>{selectedLead.mapUrl && <a className="contact-action" href={selectedLead.mapUrl} target="_blank" rel="noreferrer"><MapPin size={15} /> Open exact map</a>}</div>
                   <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Save email draft</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
                   <small className="detail-source-note">Public listing data only. Verify the website gap and use the business’s preferred contact route before sending.</small>
                 </div>

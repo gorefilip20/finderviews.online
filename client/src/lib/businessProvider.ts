@@ -101,11 +101,30 @@ export async function fetchBusinessDirectoryFallback(
       const coordinates = feature.geometry?.coordinates;
       const properties = feature.properties || {};
       if (!coordinates || coordinates.length < 2 || !properties.name) return [];
-      return [{ osm_id: index + 1, osm_type: "node", lat: String(coordinates[1]), lon: String(coordinates[0]), name: properties.name, display_name: properties.name, extratags: {}, address: { city: properties.city || properties.locality || "", state: properties.state || "", road: properties.street || "" } }];
+      return [{
+        osm_id: Number(properties.osm_id) || index + 1,
+        osm_type: String(properties.osm_type || "node"),
+        lat: String(coordinates[1]),
+        lon: String(coordinates[0]),
+        name: properties.name,
+        display_name: [properties.name, properties.street, properties.city, properties.state, properties.country].filter(Boolean).join(", "),
+        extratags: Object.fromEntries([
+          ["phone", properties.phone], ["email", properties.email], ["website", properties.website],
+          ["contact:phone", properties["contact:phone"]], ["contact:email", properties["contact:email"]],
+          ["contact:website", properties["contact:website"]], ["url", properties.url],
+        ].filter(([, value]) => typeof value === "string" && value.length > 0) as Array<[string, string]>),
+        address: {
+          city: properties.city || properties.locality || "",
+          state: properties.state || "",
+          road: properties.street || "",
+          house_number: properties.housenumber || "",
+          postcode: properties.postcode || "",
+        },
+      }];
     });
   }
 
-  return { elements: directoryData.map((item) => ({ id: item.osm_id, type: item.osm_type.toLowerCase(), lat: Number.parseFloat(item.lat), lon: Number.parseFloat(item.lon), tags: { name: item.name || item.display_name?.split(",")[0] || term, ...(item.extratags || {}), "addr:city": item.address?.city || item.address?.town || item.address?.village || "", "addr:state": item.address?.state || "", "addr:street": item.address?.road || "" } })) };
+  return { elements: directoryData.map((item) => ({ id: item.osm_id, type: item.osm_type.toLowerCase(), lat: Number.parseFloat(item.lat), lon: Number.parseFloat(item.lon), tags: { name: item.name || item.display_name?.split(",")[0] || term, ...(item.extratags || {}), "addr:city": item.address?.city || item.address?.town || item.address?.village || "", "addr:state": item.address?.state || "", "addr:street": item.address?.road || "", "addr:housenumber": item.address?.house_number || "", "addr:postcode": item.address?.postcode || "" } })) };
 }
 
 export async function fetchOverpassData(
