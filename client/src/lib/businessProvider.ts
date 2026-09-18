@@ -5,7 +5,7 @@ export const OVERPASS_ENDPOINTS = [
 ] as const;
 
 export const OVERPASS_TIMEOUT_MS = 8_000;
-export const PHOTON_CONCURRENCY_LIMIT = 8;
+export const PHOTON_CONCURRENCY_LIMIT = 10;
 export const PHOTON_MAX_ATTEMPTS = 3;
 export const PHOTON_BACKOFF_BASE_MS = 250;
 
