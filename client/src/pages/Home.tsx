@@ -8,6 +8,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isExcludedMarket } from "@/lib/marketCoverage";
 import { mapNominatimRecords } from "@/lib/businessLeads";
+import { fetchOverpassData, type OverpassData } from "@/lib/businessProvider";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import {
@@ -382,43 +383,16 @@ export default function Home() {
       })();
 
       const overpassQuery = `[out:json][timeout:15];(${categoryUnionMembers.join("")});out center tags 50;`;
-      let overpassData: {
-        elements: Array<{
-          id: number;
-          type: string;
-          lat?: number;
-          lon?: number;
-          center?: { lat: number; lon: number };
-          tags?: Record<string, string>;
-        }>;
-      };
+      let overpassData: OverpassData;
       try {
-        const overpassEndpoints = [
-          "https://overpass.kumi.systems/api/interpreter",
-          "https://overpass-api.de/api/interpreter",
-          "https://overpass.private.coffee/api/interpreter",
-        ];
-        let overpassRes: Response | null = null;
-        for (const endpoint of overpassEndpoints) {
-          try {
-            const candidate = await fetch(endpoint, {
-              method: "POST",
-              body: `data=${encodeURIComponent(overpassQuery)}`,
-              headers: { "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Finderviews/1.0 public research tool" },
-              signal: AbortSignal.timeout(15000),
-            });
-            if (candidate.ok) { overpassRes = candidate; break; }
-          } catch { /* try the next public mirror */ }
-        }
-        if (overpassRes) {
-          overpassData = (await overpassRes.json()) as typeof overpassData;
-        } else {
+        const providerData = await fetchOverpassData(overpassQuery);
+        if (!providerData) {
           const fallbackTerm = category === "All local businesses" ? "business" : category;
           const fallbackRes = await fetch(`https://nominatim.openstreetmap.org/search?${new URLSearchParams({ q: `${fallbackTerm} in ${marketLabel}`, format: "json", limit: "50", addressdetails: "1", extratags: "1", namedetails: "1" })}`, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) });
           if (!fallbackRes.ok) throw new Error("public directory unavailable");
           const fallbackData = await fallbackRes.json() as Array<{ osm_id: number; osm_type: string; lat: string; lon: string; display_name?: string; name?: string; extratags?: Record<string, string>; address?: Record<string, string> }>;
           overpassData = { elements: fallbackData.map((item) => ({ id: item.osm_id, type: item.osm_type.toLowerCase(), lat: parseFloat(item.lat), lon: parseFloat(item.lon), tags: { name: item.name || item.display_name?.split(",")[0] || fallbackTerm, ...(item.extratags || {}), "addr:city": item.address?.city || item.address?.town || item.address?.village || "", "addr:state": item.address?.state || "", "addr:street": item.address?.road || "" } })) };
-        }
+        } else overpassData = providerData;
 
         // A healthy Overpass response can still contain no matching records when a
         // mirror is stale, rate-limited, or applies a narrower interpretation of
