@@ -55,6 +55,21 @@ describe("business lead search mapping", () => {
     expect(leads).toEqual([]);
   });
 
+  it("includes a business with a website when its public contact profile is incomplete", () => {
+    const leads = mapBusinessRecords([
+      {
+        id: 103,
+        type: "node",
+        lat: 52.52,
+        lon: 13.405,
+        tags: { name: "Berlin Cafe", amenity: "cafe", website: "https://berlin-cafe.test", phone: "+49 30 123" },
+      },
+    ], { ...options, presenceMode: "Limited public presence" });
+
+    expect(leads).toHaveLength(1);
+    expect(leads[0].presence).toBe("Limited public presence");
+  });
+
   it("uses the website-directory fallback when the primary provider has no usable records", () => {
     expect(shouldUseWebsiteFallback([])).toBe(true);
     expect(shouldUseWebsiteFallback([{ id: "x", name: "Found", category: "shop", location: "Dallas", phone: "No public phone listed", verified: true, hasWebsite: false, score: 80, growthPath: "Review presence and propose next step", presence: "No website listed" }])).toBe(false);

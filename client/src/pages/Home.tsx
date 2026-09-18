@@ -9,6 +9,7 @@ import { startLogin } from "@/const";
 import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isExcludedMarket } from "@/lib/marketCoverage";
 import { fetchOverpassData, fetchBusinessDirectoryFallback, type OverpassData } from "@/lib/businessProvider";
 import { mapBusinessRecords } from "@/lib/businessLeads";
+import { enrichBusinessLeadContacts } from "@/lib/contactEnrichment";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import {
@@ -64,6 +65,8 @@ type Lead = {
   mapUrl?: string;
   source?: string;
   contactSearchUrl?: string;
+  contactSource?: string;
+  contactEnriched?: boolean;
   preview?: boolean;
   presence: "No website listed" | "Limited public presence";
 };
@@ -409,7 +412,7 @@ export default function Home() {
         return;
       }
 
-      const nextLeads: Lead[] = mapBusinessRecords(overpassData.elements, {
+      const mappedLeads: Lead[] = mapBusinessRecords(overpassData.elements, {
         country,
         marketLabel,
         category,
@@ -418,6 +421,7 @@ export default function Home() {
         ...lead,
         score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
       }));
+      const nextLeads: Lead[] = await enrichBusinessLeadContacts(mappedLeads);
 
       if (nextLeads.length === 0) {
         setLeads([]);
@@ -842,7 +846,7 @@ export default function Home() {
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
                   <div className="contact-action-grid">{selectedLead.email ? <a className="contact-action contact-action--email" href={`mailto:${selectedLead.email}?subject=${encodeURIComponent(`A simple website idea for ${selectedLead.name}`)}`}><Mail size={15} /> Email {selectedLead.email}</a> : <button className="contact-action" onClick={() => void createLocalLeadDraft()}><Mail size={15} /> Draft message</button>}{phoneHref && <a className="contact-action" href={phoneHref}><Phone size={15} /> Call {selectedLead.phone}</a>}{whatsappHref && <a className="contact-action" href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp / message</a>}<button className="contact-action" onClick={openPublicContactSearch}><ExternalLink size={15} /> Public website / contact</button>{selectedLead.mapUrl && <a className="contact-action" href={selectedLead.mapUrl} target="_blank" rel="noreferrer"><MapPin size={15} /> Open exact map</a>}</div>
                   <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Save email draft</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
-                  <small className="detail-source-note">Public listing data only. Verify the website gap and use the business’s preferred contact route before sending.</small>
+                  <small className="detail-source-note">Public listing data only. {selectedLead.contactEnriched ? `Contact fields checked through ${selectedLead.contactSource || "a secondary public directory"}. ` : "No secondary contact match was found. "}Verify the website gap and use the business’s preferred contact route before sending.</small>
                 </div>
               ) : <div className="detail-empty"><Target size={26} /><strong>Select a business record</strong><span>Details, contact clues, and a useful growth angle will appear here.</span></div>}
             </aside>

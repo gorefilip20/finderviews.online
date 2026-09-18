@@ -15,6 +15,8 @@ export type BusinessLead = {
   mapUrl?: string;
   source?: string;
   contactSearchUrl?: string;
+  contactSource?: string;
+  contactEnriched?: boolean;
   preview?: boolean;
   presence: "No website listed" | "Limited public presence";
 };
@@ -62,7 +64,11 @@ export function mapBusinessRecords(records: BusinessRecord[], options: LeadMappi
     const phone = contactValue(tags, "phone") || contactValue(tags, "mobile");
     const email = contactValue(tags, "email");
     const hasWebsite = Boolean(website);
-    const hasLimitedPublicPresence = !hasWebsite || !phone;
+    // A business can have a website but still be an untapped prospect when its
+    // public listing has no phone or email route. Keep the strict no-website
+    // mode separate, while allowing the broader limited-presence modes to
+    // surface these incomplete public profiles.
+    const hasLimitedPublicPresence = !hasWebsite || !phone || !email;
     const qualifies = options.presenceMode === "No listed website"
       ? !hasWebsite
       : options.presenceMode === "Limited public presence"
