@@ -141,6 +141,9 @@ export default function Home() {
   const [jobState, setJobState] = useState("");
   const [jobCity, setJobCity] = useState("");
   const [locationCities, setLocationCities] = useState<string[]>([]);
+  const [businessState, setBusinessState] = useState("");
+  const [businessCity, setBusinessCity] = useState("");
+  const [businessCities, setBusinessCities] = useState<string[]>([]);
   const [profile, setProfile] = useState({ companyName: "", companyDescription: "", website: "", contactEmail: "" });
   const [profileSaved, setProfileSaved] = useState(false);
   const [pitchProfile, setPitchProfile] = useState({ name: "", offer: "Websites, landing pages, and digital growth systems", proof: "", portfolio: "", availability: "Available for a focused project" });
@@ -156,6 +159,8 @@ export default function Home() {
   const selectedCountryLocation = locationDirectory.find((item) => item.name === jobCountry);
   const availableStates = selectedCountryLocation?.states?.map((item) => item.name) || [];
   const availableCities = locationCities;
+  const selectedBusinessCountry = locationDirectory.find((item) => item.name === country);
+  const businessStates = selectedBusinessCountry?.states?.map((item) => item.name) || [];
   const freshnessMaxHours = jobFreshness === "24h" ? 24 : jobFreshness === "7d" ? 168 : 720;
   const freshnessLabel = jobFreshness === "24h" ? "24 hours" : jobFreshness === "7d" ? "7 days" : "30 days";
   const allJobs = hiringSearch.data?.jobs || [];
@@ -210,6 +215,21 @@ export default function Home() {
   }, [jobCountry, jobState]);
 
   useEffect(() => {
+    setBusinessState("");
+    setBusinessCity("");
+    setBusinessCities([]);
+    setLocation("");
+  }, [country]);
+
+  useEffect(() => {
+    if (!country || !businessState) { setBusinessCities([]); return; }
+    fetch("https://countriesnow.space/api/v0.1/countries/state/cities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country, state: businessState }) })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => setBusinessCities(Array.isArray(payload?.data) ? payload.data : []))
+      .catch(() => setBusinessCities([]));
+  }, [country, businessState]);
+
+  useEffect(() => {
     if (jobs.length > 0) setSelectedJobId(jobs[0].id);
     if (jobs.length === 0) setSelectedJobId(null);
   }, [jobs]);
@@ -259,17 +279,21 @@ export default function Home() {
     }
   };
 
-  const marketLabel = `${location.trim() ? `${location.trim()}, ` : ""}${country}`;
+  const marketLabel = `${businessCity.trim() ? `${businessCity.trim()}, ` : ""}${country}`;
 
   const runLiveSearch = async () => {
-    if (isExcludedMarket(`${country} ${location}`)) {
+    if (!businessCity) {
+      toast.error("Choose a city before searching for local businesses.");
+      return;
+    }
+    if (isExcludedMarket(`${country} ${businessCity}`)) {
       toast.error("Finder supports Europe, the Americas, and Asia. African markets are excluded from this search.");
       return;
     }
     setIsSearching(true);
     setSearched(true);
     try {
-      const cityText = location.trim();
+      const cityText = businessCity.trim();
       const geoQuery = cityText ? `${cityText}, ${country}` : country;
       const geoParams: Record<string, string> = { q: geoQuery, format: "json", limit: "1" };
       if (!cityText) geoParams.featuretype = "city";
@@ -691,10 +715,23 @@ export default function Home() {
                   </select>
                   <ChevronDown size={16} />
                 </div>
-                <label className="field-label" htmlFor="hero-location">City or local area <span>(optional)</span></label>
-                <div className="input-wrap">
-                  <MapPin size={18} />
-                  <input id="hero-location" value={location} onChange={(event) => setLocation(event.target.value)} placeholder={`e.g. city in ${country}`} />
+                <label className="field-label" htmlFor="hero-state">State / province</label>
+                <div className="select-wrap">
+                  <MapPin size={17} />
+                  <select id="hero-state" value={businessState} onChange={(event) => setBusinessState(event.target.value)} disabled={locationDirectory.length === 0 || businessStates.length === 0}>
+                    <option value="">{locationDirectory.length === 0 ? "Loading states…" : businessStates.length ? "Choose a state / province" : "No state list available"}</option>
+                    {businessStates.map((option) => <option key={option}>{option}</option>)}
+                  </select>
+                  <ChevronDown size={16} />
+                </div>
+                <label className="field-label" htmlFor="hero-location">City <span>(required)</span></label>
+                <div className="select-wrap">
+                  <MapPin size={17} />
+                  <select id="hero-location" value={businessCity} onChange={(event) => { setBusinessCity(event.target.value); setLocation(event.target.value); }} disabled={!businessState || businessCities.length === 0}>
+                    <option value="">{!businessState ? "Choose a state first" : businessCities.length ? "Choose a city" : "Loading cities…"}</option>
+                    {businessCities.map((option) => <option key={option}>{option}</option>)}
+                  </select>
+                  <ChevronDown size={16} />
                 </div>
                 <label className="field-label" htmlFor="hero-category">Business category</label>
                 <div className="select-wrap">
@@ -713,7 +750,7 @@ export default function Home() {
                   <ChevronDown size={16} />
                 </div>
               </div>
-              <button className="button-primary button-primary--wide" onClick={runLiveSearch} disabled={isSearching}>
+              <button className="button-primary button-primary--wide" onClick={runLiveSearch} disabled={isSearching || !businessCity}>
                 {isSearching ? <><LoaderCircle className="spin" size={17} /> Checking listings</> : <><Search size={17} /> Find opportunities</>}
               </button>
               <p className="card-note"><span className="signal-dot" /> Africa is excluded. Limited presence is a public-listing signal, not a full digital audit.</p>
