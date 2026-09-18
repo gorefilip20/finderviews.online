@@ -62,6 +62,7 @@ export async function fetchOverpassData(
         headers: {
           Accept: "application/json",
           "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Finderviews/1.0 (public business research; https://finderviews.online)",
         },
         signal: controller.signal,
       });
