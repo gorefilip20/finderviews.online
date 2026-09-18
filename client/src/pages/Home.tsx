@@ -7,6 +7,7 @@ import { MapView } from "@/components/Map";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isExcludedMarket } from "@/lib/marketCoverage";
+import { mapNominatimRecords } from "@/lib/businessLeads";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import {
@@ -417,6 +418,19 @@ export default function Home() {
           if (!fallbackRes.ok) throw new Error("public directory unavailable");
           const fallbackData = await fallbackRes.json() as Array<{ osm_id: number; osm_type: string; lat: string; lon: string; display_name?: string; name?: string; extratags?: Record<string, string>; address?: Record<string, string> }>;
           overpassData = { elements: fallbackData.map((item) => ({ id: item.osm_id, type: item.osm_type.toLowerCase(), lat: parseFloat(item.lat), lon: parseFloat(item.lon), tags: { name: item.name || item.display_name?.split(",")[0] || fallbackTerm, ...(item.extratags || {}), "addr:city": item.address?.city || item.address?.town || item.address?.village || "", "addr:state": item.address?.state || "", "addr:street": item.address?.road || "" } })) };
+        }
+
+        // A healthy Overpass response can still contain no matching records when a
+        // mirror is stale, rate-limited, or applies a narrower interpretation of
+        // the category query. Treat an empty payload like a provider miss and use
+        // the public Nominatim directory fallback instead of showing a false zero.
+        if (!Array.isArray(overpassData.elements) || overpassData.elements.length === 0) {
+          const fallbackTerm = category === "All local businesses" ? "business" : category;
+          const fallbackRes = await fetch(`https://nominatim.openstreetmap.org/search?${new URLSearchParams({ q: `${fallbackTerm} in ${marketLabel}`, format: "json", limit: "50", addressdetails: "1", extratags: "1", namedetails: "1" })}`, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) });
+          if (!fallbackRes.ok) throw new Error("public directory unavailable");
+          const fallbackData = await fallbackRes.json() as Array<{ osm_id: number; osm_type: string; lat: string; lon: string; display_name?: string; name?: string; extratags?: Record<string, string>; address?: Record<string, string> }>;
+          const fallbackLeads = mapNominatimRecords(fallbackData, { country, marketLabel, category, presenceMode });
+          overpassData = { elements: fallbackLeads.map((lead) => ({ id: Number(lead.id.split("-").pop()), type: "node", lat: lead.position?.lat, lon: lead.position?.lng, tags: { name: lead.name, ...(lead.website ? { website: lead.website } : {}), ...(lead.phone !== "No public phone listed" ? { phone: lead.phone } : {}), ...(lead.email ? { email: lead.email } : {}), "addr:city": lead.location } })) };
         }
       } catch {
         setLeads([]);
