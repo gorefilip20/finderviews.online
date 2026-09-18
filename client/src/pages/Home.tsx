@@ -118,6 +118,8 @@ export default function Home() {
   const [searched, setSearched] = useState(false);
   const [usingPreview, setUsingPreview] = useState(false);
   const [query, setQuery] = useState("");
+  const [contactFilter, setContactFilter] = useState<"any" | "phone" | "email" | "both">("any");
+  const [scoreFilter, setScoreFilter] = useState<"any" | "high" | "top">("any");
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [outreachSavedJobIds, setOutreachSavedJobIds] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -246,11 +248,15 @@ export default function Home() {
 
   const visibleLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return leads;
-    return leads.filter((lead) =>
-      [lead.name, lead.category, lead.location, lead.growthPath].some((value) => value.toLowerCase().includes(term)),
-    );
-  }, [leads, query]);
+    return leads.filter((lead) => {
+      const hasPhone = Boolean(lead.phone && !lead.phone.toLowerCase().includes("no public"));
+      const hasEmail = Boolean(lead.email);
+      const matchesContact = contactFilter === "any" || (contactFilter === "phone" && hasPhone) || (contactFilter === "email" && hasEmail) || (contactFilter === "both" && hasPhone && hasEmail);
+      const matchesScore = scoreFilter === "any" || (scoreFilter === "high" && lead.score >= 80) || (scoreFilter === "top" && lead.score >= 90);
+      const matchesText = !term || [lead.name, lead.category, lead.location, lead.growthPath].some((value) => value.toLowerCase().includes(term));
+      return matchesContact && matchesScore && matchesText;
+    });
+  }, [contactFilter, leads, query, scoreFilter]);
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -804,6 +810,25 @@ export default function Home() {
               <Search size={17} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter this research set" aria-label="Filter lead records" />
             </div>
+            <label className="workspace-filter" aria-label="Filter by contact availability">
+              <Phone size={15} />
+              <select value={contactFilter} onChange={(event) => setContactFilter(event.target.value as typeof contactFilter)}>
+                <option value="any">Any contact</option>
+                <option value="phone">Phone listed</option>
+                <option value="email">Email listed</option>
+                <option value="both">Phone + email</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
+            <label className="workspace-filter" aria-label="Filter by opportunity score">
+              <Crosshair size={15} />
+              <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value as typeof scoreFilter)}>
+                <option value="any">Any score</option>
+                <option value="high">High opportunity (80+)</option>
+                <option value="top">Top priority (90+)</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
             <div className="mini-location-options" aria-label="Quick location choices">
               {locationSuggestions.map((suggestion) => (
                 <button key={suggestion.country} className={cn("location-pill", suggestion.country === country && "location-pill--active")} onClick={() => { setRegion(suggestion.region); setCountry(suggestion.country); setLocation(suggestion.city); }}>{suggestion.country}</button>

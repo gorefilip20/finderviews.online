@@ -156,6 +156,10 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .workspace-input:focus-within { border-color: #c8ff3d; }
 .workspace-input input { flex: 1; min-width: 0; border: 0; outline: 0; color: #f7f6f1; background: transparent; font-size: .73rem; }
 .workspace-input input::placeholder { color: #a5b0a5; }
+.workspace-filter { display: flex; align-items: center; gap: .42rem; min-width: 142px; height: 42px; padding: 0 .62rem; border: 1px solid rgba(247,246,241,.22); border-radius: .55rem; color: #afbaaf; background: rgba(247,246,241,.08); }
+.workspace-filter:focus-within { border-color: #c8ff3d; }
+.workspace-filter select { min-width: 0; flex: 1; appearance: none; border: 0; outline: 0; color: #f7f6f1; background: transparent; font-size: .66rem; font-weight: 750; cursor: pointer; }
+.workspace-filter option { color: #1d241f; background: #f7f6f1; }
 .mini-location-options { display: flex; align-items: center; gap: .4rem; flex: 1; overflow-x: auto; }
 .location-pill { padding: .48rem .65rem; border: 1px solid transparent; border-radius: 99px; background: transparent; color: #c6cdc5; font-family: "DM Mono", monospace; font-size: .59rem; white-space: nowrap; }
 .location-pill:hover, .location-pill--active { border-color: rgba(200,255,61,.5); color: #c8ff3d; background: rgba(200,255,61,.08); }
