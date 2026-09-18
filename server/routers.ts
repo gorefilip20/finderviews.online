@@ -86,7 +86,7 @@ export const appRouter = router({
       return {
         ...JSON.parse(raw),
         sourceNote: `Based only on the public ${input.title} listing. Finder does not provide private contact data; verify a public company contact before outreach.`,
-        freshnessLimitDays: MAX_JOB_AGE_DAYS,
+        freshnessLimitDays: 5,
       };
     }),
   }),
