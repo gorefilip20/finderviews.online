@@ -90,7 +90,7 @@ export type JobProviderStatus = {
 export type FreshJobSearchInput = {
   role: string;
   country: string;
-  region: "Europe" | "Americas" | "Asia";
+  region: "Europe" | "Americas" | "Asia" | "Africa" | "Oceania";
   limit?: number;
 };
 
@@ -129,12 +129,21 @@ const countryToJobicyGeo: Record<string, string> = {
   Argentina: "argentina",
   Colombia: "colombia",
   Chile: "chile",
+  Nigeria: "nigeria",
+  "South Africa": "south-africa",
+  Kenya: "kenya",
+  Egypt: "egypt",
+  Morocco: "morocco",
+  Ghana: "ghana",
+  "New Zealand": "new-zealand",
 };
 
 const regionToJobicyGeo: Record<FreshJobSearchInput["region"], string> = {
   Europe: "europe",
   Americas: "latam",
   Asia: "apac",
+  Africa: "africa",
+  Oceania: "apac",
 };
 
 export function getJobicyGeoScope(input: FreshJobSearchInput) {
@@ -411,7 +420,8 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     const publicJobs = await fetchArbeitnow();
     fallbackJobs = hasRole ? publicJobs.filter((job) => matchesRequestedRole(job, role)) : publicJobs;
     const countryNeedle = input.country.toLowerCase();
-    const regionNeedles = input.region === "Europe" ? ["germany", "uk", "united kingdom", "france", "netherlands", "europe"] : input.region === "Asia" ? ["asia", "india", "japan", "singapore", "remote"] : ["usa", "united states", "canada", "brazil", "latam", "remote"];
+    const regionNeedlesMap: Record<string, string[]> = { Europe: ["germany", "uk", "united kingdom", "france", "netherlands", "europe"], Asia: ["asia", "india", "japan", "singapore", "remote"], Americas: ["usa", "united states", "canada", "brazil", "latam", "remote"], Africa: ["africa", "nigeria", "kenya", "south africa", "egypt", "morocco", "ghana", "remote"], Oceania: ["australia", "new zealand", "apac", "remote"] };
+    const regionNeedles = regionNeedlesMap[input.region] || ["remote"];
     const scopedFallback = input.country === "Worldwide" ? fallbackJobs : fallbackJobs.filter((job) => { const text = job.geography.toLowerCase(); return text.includes(countryNeedle) || regionNeedles.some((needle) => text.includes(needle)); });
     fallbackJobs = scopedFallback.length > 0 ? scopedFallback : fallbackJobs;
     providers.push({ name: ARBEITNOW_SOURCE_NAME, status: fallbackJobs.length > 0 ? "ok" : "empty", resultCount: fallbackJobs.length });

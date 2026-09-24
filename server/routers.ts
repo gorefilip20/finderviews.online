@@ -9,7 +9,7 @@ import { MAX_JOB_AGE_DAYS, searchFreshJobs } from "./hiring";
 const jobSearchInput = z.object({
   role: z.string().trim().min(1).max(120),
   country: z.string().trim().min(1).max(80),
-  region: z.enum(["Europe", "Americas", "Asia"]),
+  region: z.enum(["Europe", "Americas", "Asia", "Africa", "Oceania"]),
 }).strict();
 
 const briefingInput = z.object({
