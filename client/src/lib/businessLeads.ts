@@ -97,7 +97,7 @@ export function mapBusinessRecords(records: BusinessRecord[], options: LeadMappi
       presence: !hasWebsite ? "No website listed" : "Limited public presence",
     });
     return results;
-  }, []).slice(0, 12);
+  }, []).slice(0, 50);
 }
 
 export function mapNominatimRecords(records: NominatimBusinessRecord[], options: LeadMappingOptions): BusinessLead[] {

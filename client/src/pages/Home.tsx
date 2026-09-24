@@ -24,10 +24,12 @@ import {
   ChevronDown,
   CircleHelp,
   Compass,
+  ClipboardPaste,
   Copy,
   Crosshair,
   Download,
   ExternalLink,
+  FileText,
   FileClock,
   Globe2,
   LoaderCircle,
@@ -38,6 +40,7 @@ import {
   Phone,
   Plus,
   Search,
+  Send,
   Sparkles,
   Target,
   UserRoundCheck,
@@ -110,6 +113,8 @@ const regionCenters: Record<MarketRegion, { lat: number; lng: number }> = {
   Americas: { lat: 37.77, lng: -97.74 },
   Europe: { lat: 50.11, lng: 10.45 },
   Asia: { lat: 34.69, lng: 103.41 },
+  Africa: { lat: 1.65, lng: 17.72 },
+  Oceania: { lat: -25.27, lng: 133.77 },
 };
 
 export default function Home() {
@@ -155,6 +160,10 @@ export default function Home() {
   const [profile, setProfile] = useState({ companyName: "", companyDescription: "", website: "", contactEmail: "" });
   const [profileSaved, setProfileSaved] = useState(false);
   const [pitchProfile, setPitchProfile] = useState({ name: "", offer: "Websites, landing pages, and digital growth systems", proof: "", portfolio: "", availability: "Available for a focused project" });
+  const [resumeText, setResumeText] = useState("");
+  const [resumeSaved, setResumeSaved] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendingLeadEmail, setSendingLeadEmail] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
 
@@ -163,6 +172,10 @@ export default function Home() {
   const hiringBrief = trpc.hiring.brief.useMutation({
     onSuccess: () => toast.success("Hiring brief prepared from the public job listing."),
     onError: () => toast.error("Finder could not prepare that brief just now. Please try again."),
+  });
+  const resumeTailor = trpc.hiring.tailorResume.useMutation({
+    onSuccess: () => toast.success("Resume tailored to match this role."),
+    onError: () => toast.error("Resume tailoring failed. Please try again."),
   });
   const selectedCountryLocation = locationDirectory.find((item) => item.name === jobCountry);
   const availableStates = selectedCountryLocation?.states?.map((item) => item.name) || [];
@@ -187,7 +200,8 @@ export default function Home() {
       if (savedPitch) setPitchProfile((current) => ({ ...current, ...savedPitch }));
       const savedApplicationStatuses = JSON.parse(localStorage.getItem("finderviews-application-statuses") || "{}");
       if (savedApplicationStatuses && typeof savedApplicationStatuses === "object") setApplicationStatuses(savedApplicationStatuses);
-
+      const savedResume = localStorage.getItem("finderviews-resume") || "";
+      if (savedResume) { setResumeText(savedResume); setResumeSaved(true); }
     } catch { /* local storage can be unavailable in private browsing */ }
     fetch("https://countriesnow.space/api/v0.1/countries/states").then((response) => response.ok ? response.json() : null).then((payload) => { if (Array.isArray(payload?.data)) setLocationDirectory(payload.data); }).catch(() => undefined);
     const syncPosts = (event: StorageEvent) => { if (event.key === "finderviews-community-posts") { try { const next = JSON.parse(event.newValue || "[]"); if (Array.isArray(next)) setCommunityPosts(next.slice(0, 12)); } catch { /* ignore malformed local data */ } } };
@@ -514,7 +528,7 @@ export default function Home() {
   const exportPreview = () => {
     toast.message("Export is ready to connect once Finder is linked to your research workflow.");
   };
-  const pitchText = `Hello, I’m ${pitchProfile.name || "[your name]"}. I help teams with ${pitchProfile.offer.toLowerCase()}. ${pitchProfile.proof ? `Recent proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.availability}. ${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}` : "I can share a short relevant example if useful."}`;
+  const pitchText = `Hello, I'm ${pitchProfile.name || "[your name]"}. I help teams with ${pitchProfile.offer.toLowerCase()}. ${pitchProfile.proof ? `Recent proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.availability}. ${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}` : "I can share a short relevant example if useful."}`;
   const savePitchProfile = () => {
     localStorage.setItem("finderviews-pitch-profile", JSON.stringify(pitchProfile));
     toast.success("Your opportunity profile is ready to reuse.");
@@ -597,12 +611,64 @@ export default function Home() {
     });
   };
   const recruiterSearchUrl = selectedJob ? `https://www.google.com/search?q=${encodeURIComponent(`${selectedJob.company} ${selectedJob.title} recruiter hiring manager LinkedIn`)}` : "";
-  const applicationMessage = selectedJob ? `Hello ${selectedJob.company} hiring team,\n\nI’m applying for the ${selectedJob.title} role because my experience in ${pitchProfile.offer.toLowerCase()} can help with the work described in the public listing. ${pitchProfile.proof ? `Relevant proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}. ` : ""}I would welcome the chance to explain how I could contribute.\n\nBest,\n${pitchProfile.name || "[Your name]"}` : "";
+  const applicationMessage = selectedJob ? `Hello ${selectedJob.company} hiring team,\n\nI'm applying for the ${selectedJob.title} role because my experience in ${pitchProfile.offer.toLowerCase()} can help with the work described in the public listing. ${pitchProfile.proof ? `Relevant proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}. ` : ""}I would welcome the chance to explain how I could contribute.\n\nBest,\n${pitchProfile.name || "[Your name]"}` : "";
   const copyApplicationMessage = async () => {
     if (!applicationMessage) return;
     try { await navigator.clipboard.writeText(applicationMessage); toast.success("Tailored application message copied. Personalize it before sending."); } catch { toast.message("Copy is unavailable; select the message manually."); }
   };
 
+  const sendLeadEmail = async () => {
+    if (!selectedLead?.email) { toast.message("No public email for this business. Use a different contact route."); return; }
+    if (!isAuthenticated) { toast.message("Sign in to send emails."); startLogin(); return; }
+    setSendingLeadEmail(true);
+    try {
+      const draftRes = await fetch("/api/outreach/drafts", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: selectedLead.email, subject: `A simple website idea for ${selectedLead.name}`, text: `Hello ${selectedLead.name} team,\n\nI found your public business listing while researching ${selectedLead.category.toLowerCase()} businesses in ${selectedLead.location}. I noticed that no standalone website is listed, so I wanted to ask whether improving your online presence is something you are considering.\n\nIf useful, I can share a short, no-pressure idea tailored to your business.\n\nBest,\n${pitchProfile.name || "[Your name]"}\n\nPublic listing: ${selectedLead.source || "https://www.openstreetmap.org/"}`, leadId: selectedLead.source || selectedLead.id }) });
+      if (!draftRes.ok) throw new Error("draft failed");
+      const draftPayload = await draftRes.json();
+      if (!draftPayload.sendingConfigured) { toast.message("Draft saved. Email sending requires RESEND_API_KEY on your server."); setSendingLeadEmail(false); return; }
+      const sendRes = await fetch("/api/outreach/send", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draftId: draftPayload.draft.id, confirmSend: true }) });
+      if (!sendRes.ok) { const err = await sendRes.json().catch(() => ({})); toast.error((err as { error?: string }).error || "Email could not be sent."); setSendingLeadEmail(false); return; }
+      toast.success(`Email sent to ${selectedLead.email}.`);
+    } catch { toast.error("Something went wrong sending the email."); }
+    setSendingLeadEmail(false);
+  };
+
+  const sendJobEmail = async () => {
+    if (!selectedJob?.applyEmail) { toast.message("No public email for this job. Use the original application route."); return; }
+    if (!isAuthenticated) { toast.message("Sign in to send emails."); startLogin(); return; }
+    setSendingEmail(true);
+    try {
+      const draftRes = await fetch("/api/outreach/drafts", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: selectedJob.applyEmail, subject: `Application for ${selectedJob.title} at ${selectedJob.company}`, text: applicationMessage, leadId: selectedJob.sourceUrl }) });
+      if (!draftRes.ok) throw new Error("draft failed");
+      const draftPayload = await draftRes.json();
+      if (!draftPayload.sendingConfigured) { toast.message("Draft saved. Email sending requires RESEND_API_KEY on your server."); setSendingEmail(false); return; }
+      const sendRes = await fetch("/api/outreach/send", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draftId: draftPayload.draft.id, confirmSend: true }) });
+      if (!sendRes.ok) { const err = await sendRes.json().catch(() => ({})); toast.error((err as { error?: string }).error || "Email could not be sent."); setSendingEmail(false); return; }
+      toast.success(`Application email sent to ${selectedJob.applyEmail}.`);
+    } catch { toast.error("Something went wrong sending the email."); }
+    setSendingEmail(false);
+  };
+
+  const saveResume = () => {
+    if (resumeText.trim().length < 20) { toast.error("Paste at least a short resume (20+ characters)."); return; }
+    localStorage.setItem("finderviews-resume", resumeText);
+    setResumeSaved(true);
+    toast.success("Resume saved locally. You can tailor it to any job.");
+  };
+
+  const tailorResumeForJob = () => {
+    if (!selectedJob) return;
+    if (!resumeText.trim() || resumeText.trim().length < 20) { toast.error("Save your resume first in the Resume section below."); return; }
+    if (!isAuthenticated) { toast.message("Sign in to use AI resume tailoring."); startLogin(); return; }
+    resumeTailor.mutate({
+      resume: resumeText,
+      jobTitle: selectedJob.title,
+      company: selectedJob.company,
+      description: selectedJob.description,
+      jobType: selectedJob.jobType,
+      level: selectedJob.level,
+    });
+  };
 
   return (
     <div className="finder-shell">
@@ -618,6 +684,7 @@ export default function Home() {
           <button onClick={() => scrollTo("hiring-workspace")}>Hiring signals</button>
           <button onClick={() => scrollTo("community-board")}>Opportunity board</button>
           <button onClick={() => scrollTo("employer-profile")}>Employer profile</button>
+          <button onClick={() => scrollTo("resume-section")}>Resume</button>
           <button onClick={() => scrollTo("growth-path")}>Growth outcomes</button>
           <button onClick={() => scrollTo("faq")}>FAQ</button>
         </nav>
@@ -837,8 +904,8 @@ export default function Home() {
                   </div>
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
                   <div className="contact-action-grid">{selectedLead.email ? <a className="contact-action contact-action--email" href={`mailto:${selectedLead.email}?subject=${encodeURIComponent(`A simple website idea for ${selectedLead.name}`)}`}><Mail size={15} /> Email {selectedLead.email}</a> : <button className="contact-action" onClick={() => void createLocalLeadDraft()}><Mail size={15} /> Draft message</button>}{phoneHref && <a className="contact-action" href={phoneHref}><Phone size={15} /> Call {selectedLead.phone}</a>}{whatsappHref && <a className="contact-action" href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp / message</a>}<button className="contact-action" onClick={openPublicContactSearch}><ExternalLink size={15} /> Public website / contact</button>{selectedLead.mapUrl && <a className="contact-action" href={selectedLead.mapUrl} target="_blank" rel="noreferrer"><MapPin size={15} /> Open exact map</a>}</div>
-                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Save email draft</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
-                  <small className="detail-source-note">Public listing data only. {selectedLead.contactEnriched ? `Contact fields checked through ${selectedLead.contactSource || "a secondary public directory"}. ` : "No secondary contact match was found. "}Verify the website gap and use the business’s preferred contact route before sending.</small>
+                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Save email draft</button>}{selectedLead.email && <button className="button-secondary" onClick={sendLeadEmail} disabled={sendingLeadEmail}>{sendingLeadEmail ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />} Send email now</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
+                  <small className="detail-source-note">Public listing data only. {selectedLead.contactEnriched ? `Contact fields checked through ${selectedLead.contactSource || "a secondary public directory"}. ` : "No secondary contact match was found. "}Verify the website gap and use the business's preferred contact route before sending.</small>
                 </div>
               ) : <div className="detail-empty"><Target size={26} /><strong>Select a business record</strong><span>Details, contact clues, and a useful growth angle will appear here.</span></div>}
             </aside>
@@ -892,7 +959,9 @@ export default function Home() {
                 <div className="company-contact-results"><div><small>BEST CONTACT ROLE</small><span>Hiring manager, team lead, or talent acquisition</span></div><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
                 <div className="recruiter-tools"><div><small>FIND THE RIGHT PERSON</small><strong>Search the company, role, and recruiter title together</strong></div><a href={recruiterSearchUrl} target="_blank" rel="noreferrer"><UsersRound size={15} /> Find recruiter / hiring manager <ExternalLink size={13} /></a></div>
                 <div className="application-checklist"><small>APPLICATION READINESS CHECK</small><div className="application-status-row"><small>APPLICATION STATUS</small><select aria-label="Application status" value={applicationStatuses[selectedJob.sourceUrl] || "ready"} onChange={(event) => updateApplicationStatus(event.target.value as "saved" | "ready" | "applied" | "interview" | "closed")}><option value="saved">Saved</option><option value="ready">Ready to apply</option><option value="applied">Applied</option><option value="interview">Interview</option><option value="closed">Closed</option></select></div><div className="application-status-row"><small>APPLICATION STATUS</small><select aria-label="Application status" value={applicationStatuses[selectedJob.sourceUrl] || "ready"} onChange={(event) => updateApplicationStatus(event.target.value as "saved" | "ready" | "applied" | "interview" | "closed")}><option value="saved">Saved</option><option value="ready">Ready to apply</option><option value="applied">Applied</option><option value="interview">Interview</option><option value="closed">Closed</option></select></div><span><Check size={14} /> Match your first two lines to the job title</span><span><Check size={14} /> Include one proof point, not a generic claim</span><span><Check size={14} /> Use the original application route before cold outreach</span><button onClick={() => void copyApplicationMessage()}><Copy size={14} /> Copy tailored application message</button></div>
-                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply / view job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save for pitch"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply / view job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save for pitch"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button>{selectedJob.applyEmail && <button className="brief-button" onClick={sendJobEmail} disabled={sendingEmail}>{sendingEmail ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />} Send email now</button>}<button className="brief-button" onClick={tailorResumeForJob} disabled={resumeTailor.isPending}>{resumeTailor.isPending ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{resumeSaved ? "Tailor my resume" : "Save resume first"}</button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+
+                {resumeTailor.data && <div className="ai-brief"><div className="ai-brief__title"><FileText size={15} /> AI TAILORED RESUME <span>MATCH: {resumeTailor.data.matchScore}</span></div><div><small>TAILORED RESUME</small><pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "0.85rem", lineHeight: 1.6, margin: 0 }}>{resumeTailor.data.tailoredResume}</pre></div><div className="ai-brief__evidence"><small>KEY CHANGES MADE</small><ul>{resumeTailor.data.keyChanges.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><Sparkles size={16} /><span><small>AI SUGGESTION</small><strong>{resumeTailor.data.suggestion}</strong></span></div><button className="brief-button" style={{ marginTop: "0.5rem" }} onClick={async () => { try { await navigator.clipboard.writeText(resumeTailor.data!.tailoredResume); toast.success("Tailored resume copied to clipboard."); } catch { toast.message("Copy unavailable; select the text manually."); } }}><Copy size={14} /> Copy tailored resume</button></div>}
 
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
@@ -908,7 +977,16 @@ export default function Home() {
           <div className="opportunity-cockpit__head"><div><span className="section-number">04 / OPPORTUNITY COCKPIT</span><h2>Make the next move<br /><em>easy to send.</em></h2></div><p>Build your own positioning once, then use it when applying for a role or opening a respectful business conversation. Finder suggests a next step, but you decide what to send.</p></div>
           <div className="opportunity-cockpit__grid">
             <div className="pitch-profile-card"><span className="card-topline">YOUR POSITIONING</span><div className="pitch-fields"><label><span>YOUR NAME</span><input value={pitchProfile.name} onChange={(event) => setPitchProfile({ ...pitchProfile, name: event.target.value })} placeholder="Your name" /></label><label><span>WHAT YOU OFFER</span><input value={pitchProfile.offer} onChange={(event) => setPitchProfile({ ...pitchProfile, offer: event.target.value })} placeholder="Your strongest offer" /></label><label><span>PROOF OR CREDIBILITY</span><input value={pitchProfile.proof} onChange={(event) => setPitchProfile({ ...pitchProfile, proof: event.target.value })} placeholder="Example: shipped 12 sites for local teams" /></label><label><span>PORTFOLIO LINK</span><input value={pitchProfile.portfolio} onChange={(event) => setPitchProfile({ ...pitchProfile, portfolio: event.target.value })} placeholder="https://yourportfolio.com" type="url" /></label><label><span>AVAILABILITY</span><select value={pitchProfile.availability} onChange={(event) => setPitchProfile({ ...pitchProfile, availability: event.target.value })}><option>Available for a focused project</option><option>Open to a full-time role</option><option>Available for contract work</option><option>Available for a short discovery call</option></select></label></div><button className="button-dark" onClick={savePitchProfile}>Save my positioning <Check size={16} /></button></div>
-            <div className="pitch-preview-card"><div className="pitch-preview-card__top"><span className="card-topline">REUSABLE INTRO</span><button className="text-link" onClick={() => void copyPitch()}>Copy pitch <Download size={14} /></button></div><p>{pitchText}</p><div className="next-move"><span className="signal-dot" /><div><small>NEXT BEST MOVE</small><strong>{selectedJob ? `Apply to ${selectedJob.company} and tailor your first two lines to “${selectedJob.title}”.` : selectedLead ? `Verify ${selectedLead.name}'s public listing, then offer one specific improvement.` : "Run a focused job or city search, then select one result."}</strong></div></div><div className="cockpit-actions"><button className="button-primary" onClick={() => scrollTo("hiring-workspace")}>Find work <BriefcaseBusiness size={16} /></button><button className="button-secondary" onClick={() => scrollTo("finder-workspace")}>Find clients <Compass size={16} /></button></div></div>
+            <div className="pitch-preview-card"><div className="pitch-preview-card__top"><span className="card-topline">REUSABLE INTRO</span><button className="text-link" onClick={() => void copyPitch()}>Copy pitch <Download size={14} /></button></div><p>{pitchText}</p><div className="next-move"><span className="signal-dot" /><div><small>NEXT BEST MOVE</small><strong>{selectedJob ? `Apply to ${selectedJob.company} and tailor your first two lines to "${selectedJob.title}".` : selectedLead ? `Verify ${selectedLead.name}'s public listing, then offer one specific improvement.` : "Run a focused job or city search, then select one result."}</strong></div></div><div className="cockpit-actions"><button className="button-primary" onClick={() => scrollTo("hiring-workspace")}>Find work <BriefcaseBusiness size={16} /></button><button className="button-secondary" onClick={() => scrollTo("finder-workspace")}>Find clients <Compass size={16} /></button></div></div>
+          </div>
+          <div className="resume-upload-card" id="resume-section">
+            <div className="resume-upload-card__top"><span className="card-topline"><ClipboardPaste size={15} /> YOUR RESUME</span><span className={cn("resume-status", resumeSaved && "resume-status--saved")}>{resumeSaved ? "Saved locally" : "Not saved yet"}</span></div>
+            <p className="resume-upload-card__intro">Paste your resume below. Once saved, you can tailor it to any job with one click from the hiring section.</p>
+            <textarea className="resume-textarea" value={resumeText} onChange={(event) => { setResumeText(event.target.value); setResumeSaved(false); }} placeholder="Paste your resume here (plain text). Include your name, experience, skills, education, and anything relevant to the roles you want." maxLength={15000} rows={12} />
+            <div className="resume-upload-card__actions">
+              <small>{resumeText.length}/15000 characters</small>
+              <button className="button-dark" onClick={saveResume}>{resumeSaved ? <><Check size={16} /> Resume saved</> : <><FileText size={16} /> Save resume</>}</button>
+            </div>
           </div>
         </section>
 

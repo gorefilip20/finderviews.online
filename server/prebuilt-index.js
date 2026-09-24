@@ -938,6 +938,14 @@ var briefingInput = z2.object({
   postedAt: z2.string().trim().max(80),
   sourceUrl: z2.string().url()
 }).strict();
+var resumeTailorInput = z2.object({
+  resume: z2.string().trim().min(20).max(15e3),
+  jobTitle: z2.string().trim().min(1).max(240),
+  company: z2.string().trim().min(1).max(240),
+  description: z2.string().trim().max(7e3),
+  jobType: z2.array(z2.string().max(120)).max(8),
+  level: z2.string().trim().max(120)
+}).strict();
 var appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
@@ -1010,6 +1018,47 @@ Source: ${input.sourceUrl}`
         sourceNote: `Based only on the public ${input.title} listing. Finder does not provide private contact data; verify a public company contact before outreach.`,
         freshnessLimitDays: MAX_JOB_AGE_DAYS
       };
+    }),
+    tailorResume: protectedProcedure.input(resumeTailorInput).mutation(async ({ input }) => {
+      let model2 = "gpt-4o-mini";
+      try {
+        const { data: models2 } = await listLLMModels();
+        model2 = models2.find((item) => item.id === "gpt-4o-mini")?.id || models2.find((item) => item.id === "gpt-5-mini")?.id || models2[0]?.id || "gpt-4o-mini";
+      } catch (_) {}
+      const response2 = await invokeLLM({
+        model: model2,
+        messages: [
+          {
+            role: "system",
+            content: "You are Finder's resume-tailoring assistant. Given a user's resume and a job listing, rewrite the resume to highlight skills and experience relevant to that specific role. Keep the same factual content but reorganize, reword, and emphasize what matches the job. Output clean professional text ready to copy-paste. Do not invent experience or credentials the user does not have."
+          },
+          {
+            role: "user",
+            content: `Tailor this resume for the following job:\n\nJob Title: ${input.jobTitle}\nCompany: ${input.company}\nEmployment: ${input.jobType.join(", ") || "Not specified"}\nLevel: ${input.level}\nJob Description: ${input.description}\n\n--- MY CURRENT RESUME ---\n${input.resume}`
+          }
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "finder_tailored_resume",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                tailoredResume: { type: "string" },
+                keyChanges: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 5 },
+                matchScore: { type: "string" },
+                suggestion: { type: "string" }
+              },
+              required: ["tailoredResume", "keyChanges", "matchScore", "suggestion"],
+              additionalProperties: false
+            }
+          }
+        }
+      });
+      const raw2 = response2.choices[0]?.message.content;
+      if (typeof raw2 !== "string") throw new Error("The AI resume service did not return a usable response.");
+      return JSON.parse(raw2);
     })
   })
 });
