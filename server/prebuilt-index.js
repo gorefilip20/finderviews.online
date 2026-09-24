@@ -883,209 +883,48 @@ var systemRouter = router({
 // server/hiring.ts
 var JOBICY_SOURCE_NAME = "Jobicy";
 var JOBICY_SOURCE_URL = "https://jobicy.com/jobs-rss-feed";
+var ARBEITNOW_SOURCE_NAME = "Arbeitnow";
+var ARBEITNOW_SOURCE_URL = "https://www.arbeitnow.com/api/job-board-api";
 var MAX_JOB_AGE_DAYS = 30;
 var MAX_JOB_AGE_MS = MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1e3;
-var ROLE_ALIASES = {
-  "product manager": ["product manager", "product management"],
-  "social media growth": ["social media", "growth marketing", "community manager"],
-  "web developer": ["web developer", "web engineer", "frontend", "full stack", "full-stack"],
-  "content writer": ["content writer", "content editor", "content strategist", "copywriter"],
-  copywriter: ["copywriter", "copy writing", "content writer"],
-  "co-founder": ["co-founder", "cofounder", "founder"],
-  "online presence": ["digital marketing", "seo", "social media", "brand manager"],
-  biochemist: ["biochemist", "biochemistry", "bioinformatics", "drug development"],
-  "drug development scientist": ["drug development", "scientist", "biomedical"],
-  "cosmetics operations manager": ["cosmetics", "cosmetic", "skincare", "beauty", "operations manager"],
-  "skincare brand manager": ["skincare", "beauty", "cosmetics", "brand manager"],
-  "funeral services manager": ["funeral", "burial", "mortuary", "cemetery"],
-  "ai engineer": ["ai ", " ai", "artificial intelligence", "machine learning", "ml engineer", "deep learning", "llm", "generative ai", "prompt engineer", "ai/ml"],
-  "ai": ["ai ", " ai", "artificial intelligence", "machine learning", "ml engineer", "deep learning", "llm", "generative ai", "prompt engineer", "ai/ml", "data scientist", "computer vision", "nlp", "natural language"],
-  "data scientist": ["data scientist", "data science", "data analyst", "data engineer", "analytics engineer", "machine learning"],
-  "software engineer": ["software engineer", "software developer", "backend", "back-end", "full stack", "full-stack", "devops", "sre", "developer", "programmer", "engineer"],
-  designer: ["designer", "ux designer", "ui designer", "graphic designer", "visual designer", "ux/ui", "product designer"],
-  marketing: ["marketing", "digital marketing", "growth", "seo", "ppc", "brand", "content marketing"],
-  sales: ["sales", "business development", "account executive", "account manager", "revenue"],
-  "customer support": ["customer support", "customer success", "customer service", "support engineer", "technical support"],
-  "project manager": ["project manager", "program manager", "scrum master", "agile", "delivery manager"],
-  finance: ["finance", "accountant", "accounting", "financial analyst", "bookkeeper", "controller"],
-  "human resources": ["human resources", "hr ", " hr", "recruiter", "talent acquisition", "people operations"],
-  developer: ["developer", "programmer", "engineer", "coder", "software"]
-};
-var countryToJobicyGeo = {
-  "United States": "usa",
-  "United Kingdom": "uk",
-  Canada: "canada",
-  Australia: "australia",
-  Germany: "germany",
-  France: "france",
-  Netherlands: "netherlands",
-  Spain: "spain",
-  Italy: "italy",
-  Poland: "poland",
-  Sweden: "sweden",
-  Switzerland: "switzerland",
-  Ireland: "ireland",
-  Portugal: "portugal",
-  Denmark: "denmark",
-  Norway: "norway",
-  Finland: "finland",
-  Belgium: "belgium",
-  Austria: "austria",
-  Romania: "romania",
-  "Czech Republic": "czech-republic",
-  India: "india",
-  Japan: "japan",
-  China: "china",
-  "Hong Kong": "hong-kong",
-  Singapore: "singapore",
-  "South Korea": "south-korea",
-  Israel: "israel",
-  "United Arab Emirates": "uae",
-  Mexico: "mexico",
-  Brazil: "brazil",
-  Argentina: "argentina",
-  Colombia: "colombia",
-  Chile: "chile"
-};
-var regionToJobicyGeo = {
-  Europe: "europe",
-  Americas: "latam",
-  Asia: "apac"
-};
-function getJobicyGeoScope(input) {
-  const directGeo = countryToJobicyGeo[input.country];
-  if (directGeo) return { geo: directGeo, scope: "country" };
-  return { geo: regionToJobicyGeo[input.region], scope: "region" };
-}
-function stripMarkup(value) {
-  return (value || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&hellip;/g, "\u2026").replace(/\s+/g, " ").trim();
-}
-function formatSalary(job) {
-  if (!job.salaryMin && !job.salaryMax) return void 0;
-  const currency = job.salaryCurrency ? `${job.salaryCurrency} ` : "";
-  const low = job.salaryMin ? `${currency}${job.salaryMin.toLocaleString()}` : void 0;
-  const high = job.salaryMax ? `${currency}${job.salaryMax.toLocaleString()}` : void 0;
-  const range = low && high ? `${low}\u2013${high.replace(currency, "")}` : low || high;
-  return job.salaryPeriod ? `${range} / ${job.salaryPeriod}` : range;
-}
-function asSafeSourceUrl(value) {
-  return value && /^https:\/\//i.test(value) ? value : JOBICY_SOURCE_URL;
-}
-var JOB_BOARD_DOMAINS = ["jobicy.com", "linkedin.com", "indeed.com", "glassdoor.com", "lever.co", "greenhouse.io", "workable.com", "recruitee.com", "breezy.hr", "smartrecruiters.com", "ashbyhq.com", "workday.com", "icims.com", "taleo.net", "myworkdayjobs.com", "bamboohr.com", "ultipro.com"];
-function extractCompanyWebsite(text) {
-  var urlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:\/[^\s<>"')}\]]*)?/gi;
-  var match;
-  while ((match = urlRegex.exec(text)) !== null) {
-    var domain = match[1].toLowerCase();
-    if (!JOB_BOARD_DOMAINS.some(function(jb) { return domain.includes(jb); })) {
-      return match[0].replace(/[.,;:!?)}\]]+$/, "");
-    }
-  }
-  return void 0;
-}
-function extractApplyEmail(text) {
-  var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-  var found = text.match(emailRegex);
-  if (!found) return void 0;
-  var dominated = ["noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "notifications", "unsubscribe"];
-  for (var i = 0; i < found.length; i++) {
-    var local = found[i].split("@")[0].toLowerCase();
-    if (!dominated.some(function(d) { return local.includes(d); })) return found[i];
-  }
-  return void 0;
-}
-function mapFreshJob(job, now = Date.now()) {
-  if (!job.pubDate || !job.jobTitle || !job.companyName) return null;
-  const publishedAt = new Date(job.pubDate);
-  const publishedAtMs = publishedAt.getTime();
-  if (Number.isNaN(publishedAtMs)) return null;
-  const rawAgeMs = now - publishedAtMs;
-  if (rawAgeMs > MAX_JOB_AGE_MS || rawAgeMs < -12 * 60 * 60 * 1e3) return null;
-  const rawDescription = job.jobDescription || "";
-  const cleanDescription = stripMarkup(rawDescription).slice(0, 7e3);
-  return {
-    id: String(job.id || `${job.companyName}-${job.jobTitle}-${job.pubDate}`),
-    title: stripMarkup(job.jobTitle),
-    company: stripMarkup(job.companyName),
-    companyLogo: job.companyLogo,
-    geography: stripMarkup(job.jobGeo) || "Remote / not specified",
-    industry: Array.isArray(job.jobIndustry) ? job.jobIndustry.map(stripMarkup).filter(Boolean) : [],
-    jobType: Array.isArray(job.jobType) ? job.jobType.map(stripMarkup).filter(Boolean) : [],
-    level: stripMarkup(job.jobLevel) || "Not specified",
-    excerpt: stripMarkup(job.jobExcerpt).slice(0, 480),
-    description: cleanDescription,
-    postedAt: publishedAt.toISOString(),
-    ageHours: Math.max(0, Math.floor(rawAgeMs / (60 * 60 * 1e3))),
-    sourceUrl: asSafeSourceUrl(job.url),
-    sourceName: JOBICY_SOURCE_NAME,
-    salary: formatSalary(job),
-    contactStatus: "Use the public source listing or verify a company contact before outreach.",
-    companyWebsite: extractCompanyWebsite(rawDescription),
-    applyEmail: extractApplyEmail(rawDescription)
-  };
-}
-function mapFreshJobs(jobs, now = Date.now()) {
-  return jobs.map((job) => mapFreshJob(job, now)).filter((job) => job !== null).sort((left, right) => Date.parse(right.postedAt) - Date.parse(left.postedAt));
-}
-function matchesRequestedRole(job, requestedRole) {
-  const normalizedRole = requestedRole.trim().toLowerCase();
-  if (!normalizedRole || normalizedRole === "all hiring roles") return true;
-  const searchable = `${job.title} ${job.excerpt} ${job.description}`.toLowerCase();
-  const aliases = ROLE_ALIASES[normalizedRole] || [normalizedRole];
-  return aliases.some((alias) => searchable.includes(alias));
-}
-async function fetchJobicy(params) {
-  const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
-    headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }
-  });
-  if (!response.ok) return [];
-  const payload = await response.json();
-  return mapFreshJobs(payload.jobs || []);
-}
-async function searchFreshJobs(input) {
-  const geoScope = getJobicyGeoScope(input);
-  const role = input.role.trim();
-  const hasRole = role && role !== "All hiring roles";
-  const count = String(Math.min(Math.max(input.limit || 50, 1), 60));
-  let jobs = [];
-  try {
-    if (hasRole) {
-      const tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role });
-      jobs = (await fetchJobicy(tagParams)).filter((job) => matchesRequestedRole(job, role));
-    }
-    if (jobs.length === 0) {
-      const broadParams = new URLSearchParams({ count, geo: geoScope.geo });
-      const allJobs = await fetchJobicy(broadParams);
-      jobs = hasRole ? allJobs.filter((job) => matchesRequestedRole(job, role)) : allJobs;
-    }
-    if (jobs.length === 0 && geoScope.scope === "country") {
-      const regionParams = new URLSearchParams({ count, geo: regionToJobicyGeo[input.region] });
-      const regionJobs = await fetchJobicy(regionParams);
-      jobs = hasRole ? regionJobs.filter((job) => matchesRequestedRole(job, role)) : regionJobs;
-    }
-    if (jobs.length === 0) {
-      const globalParams = new URLSearchParams({ count });
-      const globalJobs = await fetchJobicy(globalParams);
-      jobs = hasRole ? globalJobs.filter((job) => matchesRequestedRole(job, role)) : globalJobs;
-    }
-  } catch (_) {}
-  return {
-    jobs,
-    sourceName: JOBICY_SOURCE_NAME,
-    sourceUrl: JOBICY_SOURCE_URL,
-    freshnessDays: MAX_JOB_AGE_DAYS,
-    countryFilterApplied: geoScope.scope === "country",
-    regionFilterApplied: geoScope.scope === "region",
-    countryContext: input.country,
-    regionContext: input.region
-  };
-}
-
-// server/routers.ts
+var ROLE_ALIASES = { "product manager": ["product manager", "product management"], "social media growth": ["social media", "growth marketing", "community manager"], "web developer": ["web developer", "web engineer", "frontend", "full stack", "full-stack"], "content writer": ["content writer", "content editor", "content strategist", "copywriter"], copywriter: ["copywriter", "copy writing", "content writer"], "co-founder": ["co-founder", "cofounder", "founder"], "online presence": ["digital marketing", "seo", "social media", "brand manager"], biochemist: ["biochemist", "biochemistry", "bioinformatics", "drug development"], "drug development scientist": ["drug development", "scientist", "biomedical"], "cosmetics operations manager": ["cosmetics", "cosmetic", "skincare", "beauty", "operations manager"], "skincare brand manager": ["skincare", "beauty", "cosmetics", "brand manager"], "funeral services manager": ["funeral", "burial", "mortuary", "cemetery"], "ai engineer": ["ai ", " ai", "artificial intelligence", "machine learning", "ml engineer", "deep learning", "llm", "generative ai", "prompt engineer", "ai/ml"], "ai": ["ai ", " ai", "artificial intelligence", "machine learning", "ml engineer", "deep learning", "llm", "generative ai", "prompt engineer", "ai/ml", "data scientist", "computer vision", "nlp", "natural language"], "data scientist": ["data scientist", "data science", "data analyst", "data engineer", "analytics engineer", "machine learning"], "software engineer": ["software engineer", "software developer", "backend", "back-end", "full stack", "full-stack", "devops", "sre", "developer", "programmer", "engineer"], designer: ["designer", "ux designer", "ui designer", "graphic designer", "visual designer", "ux/ui", "product designer"], marketing: ["marketing", "digital marketing", "growth", "seo", "ppc", "brand", "content marketing"], sales: ["sales", "business development", "account executive", "account manager", "revenue"], "customer support": ["customer support", "customer success", "customer service", "support engineer", "technical support"], "project manager": ["project manager", "program manager", "scrum master", "agile", "delivery manager"], finance: ["finance", "accountant", "accounting", "financial analyst", "bookkeeper", "controller"], "human resources": ["human resources", "hr ", " hr", "recruiter", "talent acquisition", "people operations"], developer: ["developer", "programmer", "engineer", "coder", "software"] };
+var countryToJobicyGeo = { "United States": "usa", "United Kingdom": "uk", Canada: "canada", Australia: "australia", Germany: "germany", France: "france", Netherlands: "netherlands", Spain: "spain", Italy: "italy", Poland: "poland", Sweden: "sweden", Switzerland: "switzerland", Ireland: "ireland", Portugal: "portugal", Denmark: "denmark", Norway: "norway", Finland: "finland", Belgium: "belgium", Austria: "austria", Romania: "romania", "Czech Republic": "czech-republic", India: "india", Japan: "japan", China: "china", "Hong Kong": "hong-kong", Singapore: "singapore", "South Korea": "south-korea", Israel: "israel", "United Arab Emirates": "uae", Mexico: "mexico", Brazil: "brazil", Argentina: "argentina", Colombia: "colombia", Chile: "chile", Nigeria: "nigeria", "South Africa": "south-africa", Kenya: "kenya", Egypt: "egypt", Morocco: "morocco", Ghana: "ghana", "New Zealand": "new-zealand" };
+var regionToJobicyGeo = { Europe: "europe", Americas: "latam", Asia: "apac", Africa: "africa", Oceania: "apac" };
+function getJobicyGeoScope(input) { if (input.country === "Worldwide") return { geo: "", scope: "global" }; var directGeo = countryToJobicyGeo[input.country]; return directGeo ? { geo: directGeo, scope: "country" } : { geo: regionToJobicyGeo[input.region], scope: "region" }; }
+function stripMarkup(value) { return (value || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&hellip;/g, "…").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim(); }
+function formatSalary(job) { if (!job.salaryMin && !job.salaryMax) return void 0; var currency = job.salaryCurrency ? job.salaryCurrency + " " : ""; var low = job.salaryMin ? currency + job.salaryMin.toLocaleString() : void 0; var high = job.salaryMax ? currency + job.salaryMax.toLocaleString() : void 0; var range = low && high ? low + "–" + high.replace(currency, "") : low || high; return job.salaryPeriod ? range + " / " + job.salaryPeriod : range; }
+function asSafeSourceUrl(value) { return value && /^https:\/\//i.test(value) ? value : JOBICY_SOURCE_URL; }
+var JOB_BOARD_DOMAINS = ["jobicy.com", "linkedin.com", "indeed.com", "glassdoor.com", "lever.co", "greenhouse.io", "workable.com", "recruitee.com", "breezy.hr", "smartrecruiters.com", "ashbyhq.com", "workday.com", "icims.com", "taleo.net", "myworkdayjobs.com", "bamboohr.com", "ultipro.com", "arbeitnow.com"];
+function extractCompanyWebsite(text) { var urlRegex = /https?:\/\/(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:\/[^\s<>"')}\]]*)?/gi; var match; while ((match = urlRegex.exec(text)) !== null) { var domain = match[1].toLowerCase(); if (!JOB_BOARD_DOMAINS.some(function(jb) { return domain.includes(jb); })) { return match[0].replace(/[.,;:!?)}\]]+$/, ""); } } return undefined; }
+function extractApplyEmail(text) { var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g; var found = text.match(emailRegex); if (!found) return undefined; var dominated = ["noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "notifications", "unsubscribe"]; for (var i = 0; i < found.length; i++) { var local = found[i].split("@")[0].toLowerCase(); if (!dominated.some(function(d) { return local.includes(d); })) return found[i]; } return undefined; }
+function mapFreshJob(job, now = Date.now()) { if (!job.pubDate || !job.jobTitle || !job.companyName) return null; var publishedAt = new Date(job.pubDate); var publishedAtMs = publishedAt.getTime(); if (Number.isNaN(publishedAtMs)) return null; var rawAgeMs = now - publishedAtMs; if (rawAgeMs > MAX_JOB_AGE_MS || rawAgeMs < -12 * 60 * 60 * 1e3) return null; var rawDescription = job.jobDescription || ""; var cleanDescription = stripMarkup(rawDescription).slice(0, 7e3); return { id: String(job.id || job.companyName + "-" + job.jobTitle + "-" + job.pubDate), title: stripMarkup(job.jobTitle), company: stripMarkup(job.companyName), companyLogo: job.companyLogo, geography: stripMarkup(job.jobGeo) || "Remote / not specified", industry: Array.isArray(job.jobIndustry) ? job.jobIndustry.map(stripMarkup).filter(Boolean) : [], jobType: Array.isArray(job.jobType) ? job.jobType.map(stripMarkup).filter(Boolean) : [], level: stripMarkup(job.jobLevel) || "Not specified", excerpt: stripMarkup(job.jobExcerpt).slice(0, 480), description: cleanDescription, postedAt: publishedAt.toISOString(), ageHours: Math.max(0, Math.floor(rawAgeMs / (60 * 60 * 1e3))), sourceUrl: asSafeSourceUrl(job.url), sourceName: JOBICY_SOURCE_NAME, salary: formatSalary(job), contactStatus: "Use the public source listing or verify a company contact before outreach.", companyWebsite: extractCompanyWebsite(rawDescription), applyEmail: extractApplyEmail(rawDescription), contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${job.companyName} official website contact careers`)}`, hasActionableContact: Boolean(extractCompanyWebsite(rawDescription) || extractApplyEmail(rawDescription) || job.url) }; }
+function mapFreshJobs(jobs, now = Date.now()) { return jobs.map((job) => mapFreshJob(job, now)).filter((job) => job !== null).sort((left, right) => Date.parse(right.postedAt) - Date.parse(left.postedAt)); }
+function matchesRequestedRole(job, requestedRole) { var normalizedRole = requestedRole.trim().toLowerCase(); if (!normalizedRole || normalizedRole === "all hiring roles") return true; var searchable = (job.title + " " + job.excerpt + " " + job.description).toLowerCase(); var aliases = ROLE_ALIASES[normalizedRole] || [normalizedRole]; return aliases.some((alias) => searchable.includes(alias)); }
+async function fetchJobicy(params) { var response = await fetch("https://jobicy.com/api/v2/remote-jobs?" + params.toString(), { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12e3) }); if (!response.ok) return []; var payload = await response.json(); return mapFreshJobs(payload.jobs || []); }
+function mapArbeitnowJob(job, now = Date.now()) { if (!job.title || !job.company_name || !job.created_at) return null; var createdMs = typeof job.created_at === "number" ? (job.created_at < 1e10 ? job.created_at * 1e3 : job.created_at) : Date.parse(job.created_at); if (!Number.isFinite(createdMs)) return null; var ageMs = now - createdMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1e3) return null; var description = stripMarkup(job.description).slice(0, 7e3); var rawDesc = job.description || ""; return { id: "arbeitnow-" + (job.slug || job.company_name + "-" + job.title), title: stripMarkup(job.title), company: stripMarkup(job.company_name), geography: stripMarkup(job.location) || (job.remote ? "Remote" : "Not specified"), industry: (job.tags || []).map(stripMarkup).filter(Boolean).slice(0, 8), jobType: [], level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(createdMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1e3))), sourceUrl: asSafeSourceUrl(job.url), sourceName: ARBEITNOW_SOURCE_NAME, contactStatus: "Use the original public listing to apply or verify a company contact.", companyWebsite: extractCompanyWebsite(rawDesc), applyEmail: extractApplyEmail(rawDesc), contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${job.company_name} official website contact careers`)}`, hasActionableContact: Boolean(extractCompanyWebsite(rawDesc) || extractApplyEmail(rawDesc) || job.url) }; }
+async function fetchArbeitnow() { var response = await fetch(ARBEITNOW_SOURCE_URL, { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12e3) }); if (!response.ok) return []; var payload = await response.json(); return (payload.data || []).map((job) => mapArbeitnowJob(job)).filter((job) => job !== null); }
+const HIMALAYAS_SOURCE_NAME = "Himalayas";
+function mapHimalayasRuntimeJob(job, now = Date.now()) { if (!job.title || !job.companyName || !job.pubDate) return null; const publishedMs = typeof job.pubDate === "number" ? (job.pubDate < 10000000000 ? job.pubDate * 1000 : job.pubDate) : Date.parse(job.pubDate); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null; const rawDescription = job.description || job.excerpt || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const company = stripMarkup(job.companyName); const companyWebsite = extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); return { id: "himalayas-" + (job.guid || company + "-" + job.title), title: stripMarkup(job.title), company, companyLogo: job.companyLogo, geography: job.locationRestrictions?.join(", ") || "Worldwide / remote", industry: [...(job.categories || []), ...(job.parentCategories || [])].map(stripMarkup).filter(Boolean).slice(0, 8), jobType: job.employmentType ? [stripMarkup(job.employmentType)] : [], level: stripMarkup(job.seniority) || "Not specified", excerpt: stripMarkup(job.excerpt).slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.applicationLink), sourceName: HIMALAYAS_SOURCE_NAME, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: "https://www.google.com/search?q=" + encodeURIComponent(company + " official website contact careers"), hasActionableContact: Boolean(companyWebsite || applyEmail || job.applicationLink) }; }
+async function fetchHimalayasRuntime(role, worldwide) { const params = new URLSearchParams({ limit: "20" }); if (role) params.set("q", role); if (worldwide) params.set("worldwide", "true"); const response = await fetch("https://himalayas.app/jobs/api/search?" + params.toString(), { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return []; const payload = await response.json(); return (payload.jobs || []).map((job) => mapHimalayasRuntimeJob(job)).filter(Boolean); }
+const WWR_SOURCE_NAME = "We Work Remotely";
+function decodeWwrXml(value) { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'"); }
+function wwrTag(item, tag) { const match = item.match(new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">", "i")); return match ? decodeWwrXml(match[1].trim()) : ""; }
+function mapWwrRuntimeItem(item, now = Date.now()) { const headline = wwrTag(item, "title"); const pubDate = wwrTag(item, "pubDate"); const sourceUrl = wwrTag(item, "link") || wwrTag(item, "guid"); if (!headline || !pubDate || !sourceUrl) return null; const publishedMs = Date.parse(pubDate); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1000 || ageMs < -12 * 60 * 60 * 1000) return null; const split = headline.indexOf(":"); const company = split > 0 ? headline.slice(0, split).trim() : "Remote employer"; const title = split > 0 ? headline.slice(split + 1).trim() : headline; const rawDescription = wwrTag(item, "description"); const description = stripMarkup(rawDescription).slice(0, 7000); const companyWebsite = extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); return { id: "wwr-" + sourceUrl, title, company, geography: wwrTag(item, "region") || "Worldwide / remote", industry: [wwrTag(item, "category")].filter(Boolean), jobType: [wwrTag(item, "type")].filter(Boolean), level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(sourceUrl), sourceName: WWR_SOURCE_NAME, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: "https://www.google.com/search?q=" + encodeURIComponent(company + " official website contact careers"), hasActionableContact: Boolean(companyWebsite || applyEmail || sourceUrl) }; }
+async function fetchWwrRuntime() { const response = await fetch("https://weworkremotely.com/remote-jobs.rss", { headers: { Accept: "application/rss+xml, application/xml, text/xml", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return []; const xml = await response.text(); return [...xml.matchAll(/<item[\s\S]*?<\/item>/gi)].map((match) => mapWwrRuntimeItem(match[0])).filter(Boolean); }
+const ADZUNA_SOURCE_NAME = "Adzuna";
+const ADZUNA_EUROPE_COUNTRIES = { Germany: "de", Finland: "fi", "United Kingdom": "gb", France: "fr", Netherlands: "nl", Sweden: "se", Norway: "no", Denmark: "dk", Spain: "es", Italy: "it", Poland: "pl", Ireland: "ie", Austria: "at", Belgium: "be", Portugal: "pt", Switzerland: "ch" };
+function mapAdzunaRuntimeJob(job, now = Date.now()) { if (!job.title || !job.company?.display_name || !job.created || !job.redirect_url) return null; const publishedMs = Date.parse(job.created); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1000 || ageMs < -12 * 60 * 60 * 1000) return null; const company = stripMarkup(job.company.display_name); const rawDescription = job.description || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const companyWebsite = extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); return { id: "adzuna-" + (job.id || company + "-" + job.title + "-" + job.created), title: stripMarkup(job.title), company, geography: stripMarkup(job.location?.display_name) || "Europe", industry: [stripMarkup(job.category?.label)].filter(Boolean), jobType: [job.contract_type, job.contract_time].filter(Boolean).map((value) => stripMarkup(value)), level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.redirect_url), sourceName: ADZUNA_SOURCE_NAME, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: "https://www.google.com/search?q=" + encodeURIComponent(company + " official website contact careers"), hasActionableContact: Boolean(companyWebsite || applyEmail || job.redirect_url) }; }
+async function fetchAdzunaRuntime(input, role) { const appId = process.env.ADZUNA_APP_ID; const appKey = process.env.ADZUNA_APP_KEY; if (!appId || !appKey) return []; const countries = input.country !== "Worldwide" && ADZUNA_EUROPE_COUNTRIES[input.country] ? [ADZUNA_EUROPE_COUNTRIES[input.country]] : input.region === "Europe" ? Object.values(ADZUNA_EUROPE_COUNTRIES) : []; const pages = await Promise.all(countries.map(async (country) => { const params = new URLSearchParams({ app_id: appId, app_key: appKey, results_per_page: "50", what: role && role !== "All hiring roles" ? role : "", content_type: "application/json" }); const response = await fetch("https://api.adzuna.com/v1/api/jobs/" + country + "/search/1?" + params.toString(), { headers: { Accept: "application/json", "User-Agent": "Finderviews/1.0" }, signal: AbortSignal.timeout(12000) }); if (!response.ok) return []; const payload = await response.json(); return (payload.results || []).map((job) => mapAdzunaRuntimeJob(job)).filter(Boolean); })); return pages.flat(); }
+const THEIRSTACK_SOURCE_NAME = "TheirStack";
+const THEIRSTACK_EUROPE_COUNTRIES = { Germany: "DE", Finland: "FI", "United Kingdom": "GB", France: "FR", Netherlands: "NL", Sweden: "SE", Norway: "NO", Denmark: "DK", Spain: "ES", Italy: "IT", Poland: "PL", Ireland: "IE", Austria: "AT", Belgium: "BE", Portugal: "PT", Switzerland: "CH", Estonia: "EE", Latvia: "LV", Lithuania: "LT", Czechia: "CZ", Slovakia: "SK", Slovenia: "SI", Croatia: "HR", Greece: "GR", Hungary: "HU", Romania: "RO", Bulgaria: "BG", Luxembourg: "LU", Malta: "MT", Cyprus: "CY" };
+function mapTheirStackRuntimeJob(job, now = Date.now()) { const title = job.job_title || job.title; const company = job.company_name || job.company?.name; const posted = job.date_posted || job.posted_at || job.created_at; const sourceUrl = job.final_url || job.url || job.source_url; if (!title || !company || !posted || !sourceUrl) return null; const publishedMs = Date.parse(posted); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null; const rawDescription = job.description || job.job_description || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const cleanCompany = stripMarkup(company); const location = typeof job.location === "string" ? job.location : job.location?.display_name || [job.location?.city, job.location?.country].filter(Boolean).join(", "); const companyWebsite = job.company?.home_page_url || extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); return { id: "theirstack-" + (job.id || job.job_id || cleanCompany + "-" + title + "-" + posted), title: stripMarkup(title), company: cleanCompany, geography: stripMarkup(location) || job.job_country_code || "Europe", industry: [stripMarkup(job.category)].filter(Boolean), jobType: [stripMarkup(job.employment_type)].filter(Boolean), level: stripMarkup(job.seniority) || "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(sourceUrl), sourceName: THEIRSTACK_SOURCE_NAME, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: "https://www.google.com/search?q=" + encodeURIComponent(cleanCompany + " official website contact careers"), hasActionableContact: Boolean(companyWebsite || applyEmail || sourceUrl) }; }
+async function fetchTheirStackRuntime(input, role) { const apiKey = process.env.THEIRSTACK_API_KEY; if (!apiKey) return []; const countries = input.country !== "Worldwide" && THEIRSTACK_EUROPE_COUNTRIES[input.country] ? [THEIRSTACK_EUROPE_COUNTRIES[input.country]] : input.region === "Europe" ? Object.values(THEIRSTACK_EUROPE_COUNTRIES) : []; if (countries.length === 0) return []; const response = await fetch("https://api.theirstack.com/v1/jobs/search", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: "Bearer " + apiKey, "User-Agent": "Finderviews/1.0" }, body: JSON.stringify({ job_title_or: role && role !== "All hiring roles" ? [role] : undefined, job_country_code_or: countries, posted_at_max_age_days: MAX_JOB_AGE_DAYS, limit: Math.min(input.limit || 100, 500) }), signal: AbortSignal.timeout(15000) }); if (!response.ok) return []; const payload = await response.json(); return (payload.jobs || payload.data || payload.results || []).map((job) => mapTheirStackRuntimeJob(job)).filter(Boolean); }
+function dedupeJobs(jobs) { var seen = new Set(); return jobs.filter((job) => { var key = job.company.toLowerCase() + "|" + job.title.toLowerCase() + "|" + job.sourceUrl; if (seen.has(key)) return false; seen.add(key); return true; }); }
+async function searchFreshJobs(input) { var geoScope = getJobicyGeoScope(input); var role = input.role.trim(); var hasRole = role && role !== "All hiring roles"; var count = String(Math.min(Math.max(input.limit || 100, 1), 60)); var jobs = []; var fallbackJobs = []; var globalJobs = []; var rssJobs = []; var adzunaJobs = []; var theirStackJobs = []; try { if (hasRole) { var tagParams = new URLSearchParams({ count, geo: geoScope.geo, tag: role }); jobs = (await fetchJobicy(tagParams)).filter((job) => matchesRequestedRole(job, role)); } if (jobs.length === 0) { var broadParams = new URLSearchParams({ count, geo: geoScope.geo }); var allJobs = await fetchJobicy(broadParams); jobs = hasRole ? allJobs.filter((job) => matchesRequestedRole(job, role)) : allJobs; } if (jobs.length === 0 && geoScope.scope === "country") { var regionParams = new URLSearchParams({ count, geo: regionToJobicyGeo[input.region] }); var regionJobs = await fetchJobicy(regionParams); jobs = hasRole ? regionJobs.filter((job) => matchesRequestedRole(job, role)) : regionJobs; } if (jobs.length === 0) { var globalParams = new URLSearchParams({ count }); var globalJobs = await fetchJobicy(globalParams); jobs = hasRole ? globalJobs.filter((job) => matchesRequestedRole(job, role)) : globalJobs; } } catch {} try { var publicJobs = await fetchArbeitnow(); fallbackJobs = hasRole ? publicJobs.filter((job) => matchesRequestedRole(job, role)) : publicJobs; var countryNeedle = input.country.toLowerCase(); var regionNeedlesMap = { Europe: ["germany", "uk", "united kingdom", "france", "netherlands", "europe"], Asia: ["asia", "india", "japan", "singapore", "remote"], Americas: ["usa", "united states", "canada", "brazil", "latam", "remote"], Africa: ["africa", "nigeria", "kenya", "south africa", "egypt", "morocco", "ghana", "remote"], Oceania: ["australia", "new zealand", "apac", "remote"] }; var regionNeedles = regionNeedlesMap[input.region] || ["remote"]; var scopedFallback = input.country === "Worldwide" ? fallbackJobs : fallbackJobs.filter((job) => { var geography = job.geography.toLowerCase(); return geography.includes(countryNeedle) || regionNeedles.some((needle) => geography.includes(needle)); }); fallbackJobs = scopedFallback.length > 0 ? scopedFallback : fallbackJobs; } catch {} try { globalJobs = (await fetchHimalayasRuntime(hasRole ? role : "", input.country === "Worldwide")).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} try { rssJobs = (await fetchWwrRuntime()).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} try { adzunaJobs = (await fetchAdzunaRuntime(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} try { theirStackJobs = (await fetchTheirStackRuntime(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs, rssJobs, adzunaJobs, theirStackJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 500)); return { jobs, sourceName: jobs.length > 0 ? [...new Set(jobs.map((job) => job.sourceName))].join(" + ") : JOBICY_SOURCE_NAME + " + " + ARBEITNOW_SOURCE_NAME, sourceUrl: JOBICY_SOURCE_URL, freshnessDays: MAX_JOB_AGE_DAYS, countryFilterApplied: geoScope.scope === "country", regionFilterApplied: geoScope.scope === "region", countryContext: input.country, regionContext: input.region, globalFilterApplied: geoScope.scope === "global", contactCoverage: jobs.length ? Math.round(jobs.filter((job) => job.hasActionableContact).length / jobs.length * 100) : 0, refreshedAt: new Date().toISOString() }; }
 var jobSearchInput = z2.object({
   role: z2.string().trim().min(1).max(120),
   country: z2.string().trim().min(1).max(80),
-  region: z2.enum(["Europe", "Americas", "Asia"])
+  region: z2.enum(["Europe", "Americas", "Asia", "Africa", "Oceania"])
 }).strict();
 var briefingInput = z2.object({
   title: z2.string().trim().min(1).max(240),
@@ -1246,6 +1085,26 @@ function serveStatic(app) {
   });
 }
 
+// Finderviews opportunity/profile persistence for Hostinger's runtime-only deployment
+var OPPORTUNITY_STORE_PATH = path2.resolve(import.meta.dirname, "urgent-opportunities.json");
+var PROFILE_STORE_PATH = path2.resolve(import.meta.dirname, "employer-profiles.json");
+var OUTREACH_STORE_PATH = path2.resolve(import.meta.dirname, "outreach-leads.json");
+var OUTREACH_DRAFT_STORE_PATH = path2.resolve(import.meta.dirname, "outreach-drafts.json");
+async function readJsonStore(filePath, fallback) { try { if (!fs2.existsSync(filePath)) return fallback; return JSON.parse(await fs2.promises.readFile(filePath, "utf8")); } catch { return fallback; } }
+async function writeJsonStore(filePath, value) { await fs2.promises.writeFile(filePath, JSON.stringify(value, null, 2), "utf8"); }
+async function authenticateApiUser(req, res) { try { return await sdk.authenticateRequest(req); } catch { res.status(401).json({ error: "Sign in required" }); return null; } }
+function registerOpportunityRoutes(app) {
+  app.get("/api/opportunities", async (req, res) => { const now = Date.now(); const posts = await readJsonStore(OPPORTUNITY_STORE_PATH, []); const active = posts.filter((post) => !post.expiresAt || Date.parse(post.expiresAt) > now).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 100); res.json({ opportunities: active, refreshedAt: new Date().toISOString() }); });
+  app.post("/api/opportunities", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; const title = typeof body.title === "string" ? body.title.trim().slice(0, 160) : ""; const description = typeof body.description === "string" ? body.description.trim().slice(0, 900) : ""; if (!title || description.length < 10) return res.status(400).json({ error: "Title and a useful description are required" }); const posts = await readJsonStore(OPPORTUNITY_STORE_PATH, []); const post = { id: `urgent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title, description, role: typeof body.role === "string" ? body.role.trim().slice(0, 120) : "General opportunity", country: typeof body.country === "string" ? body.country.trim().slice(0, 80) : "", state: typeof body.state === "string" ? body.state.trim().slice(0, 100) : "", city: typeof body.city === "string" ? body.city.trim().slice(0, 100) : "", urgent: Boolean(body.urgent), sourceUrl: typeof body.sourceUrl === "string" && /^https:\/\//.test(body.sourceUrl) ? body.sourceUrl : "", postedBy: user.openId, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (body.urgent ? 48 : 168) * 60 * 60 * 1000).toISOString() }; posts.unshift(post); await writeJsonStore(OPPORTUNITY_STORE_PATH, posts.slice(0, 500)); res.status(201).json({ opportunity: post }); });
+  app.get("/api/employer-profile", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const profiles = await readJsonStore(PROFILE_STORE_PATH, {}); res.json({ profile: profiles[user.openId] || null }); });
+  app.put("/api/employer-profile", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; const profile = { companyName: typeof body.companyName === "string" ? body.companyName.trim().slice(0, 160) : "", companyDescription: typeof body.companyDescription === "string" ? body.companyDescription.trim().slice(0, 900) : "", website: typeof body.website === "string" && /^https:\/\//.test(body.website) ? body.website : "", contactEmail: typeof body.contactEmail === "string" ? body.contactEmail.trim().slice(0, 320) : "", updatedAt: new Date().toISOString() }; if (!profile.companyName || !/^\S+@\S+\.\S+$/.test(profile.contactEmail)) return res.status(400).json({ error: "Company name and valid contact email are required" }); const profiles = await readJsonStore(PROFILE_STORE_PATH, {}); profiles[user.openId] = profile; await writeJsonStore(PROFILE_STORE_PATH, profiles); res.json({ profile }); });
+  app.get("/api/outreach/leads", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const all = await readJsonStore(OUTREACH_STORE_PATH, []); res.json({ leads: all.filter((lead) => lead.ownerId === user.openId).slice(0, 500) }); });
+  app.post("/api/outreach/leads", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; const sourceUrl = typeof body.sourceUrl === "string" && /^https:\/\//.test(body.sourceUrl) ? body.sourceUrl : ""; const title = typeof body.title === "string" ? body.title.trim().slice(0, 240) : ""; const company = typeof body.company === "string" ? body.company.trim().slice(0, 240) : ""; if (!sourceUrl || !title || !company) return res.status(400).json({ error: "A public source URL, title, and company are required" }); const all = await readJsonStore(OUTREACH_STORE_PATH, []); const existing = all.find((lead) => lead.ownerId === user.openId && lead.sourceUrl === sourceUrl); const lead = { id: existing?.id || "lead-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8), ownerId: user.openId, title, company, sourceUrl, geography: typeof body.geography === "string" ? body.geography.trim().slice(0, 160) : "", contactEmail: typeof body.contactEmail === "string" && /^\S+@\S+\.\S+$/.test(body.contactEmail) ? body.contactEmail.trim() : "", contactUrl: typeof body.contactUrl === "string" && /^https:\/\//.test(body.contactUrl) ? body.contactUrl : "", status: existing?.status || "saved", createdAt: existing?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }; const next = [lead, ...all.filter((item) => item.id !== lead.id)].slice(0, 2000); await writeJsonStore(OUTREACH_STORE_PATH, next); res.status(existing ? 200 : 201).json({ lead }); });
+  app.delete("/api/outreach/leads/:id", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const all = await readJsonStore(OUTREACH_STORE_PATH, []); await writeJsonStore(OUTREACH_STORE_PATH, all.filter((lead) => !(lead.id === req.params.id && lead.ownerId === user.openId))); res.json({ success: true }); });
+  app.post("/api/outreach/drafts", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; const to = typeof body.to === "string" && /^\S+@\S+\.\S+$/.test(body.to) ? body.to.trim() : ""; const subject = typeof body.subject === "string" ? body.subject.trim().slice(0, 240) : ""; const text = typeof body.text === "string" ? body.text.trim().slice(0, 10000) : ""; if (!to || !subject || !text) return res.status(400).json({ error: "Recipient, subject, and message are required" }); const drafts = await readJsonStore(OUTREACH_DRAFT_STORE_PATH, []); const draft = { id: "draft-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8), ownerId: user.openId, leadId: typeof body.leadId === "string" ? body.leadId.slice(0, 120) : "", to, subject, text, status: "draft", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; await writeJsonStore(OUTREACH_DRAFT_STORE_PATH, [draft, ...drafts].slice(0, 2000)); res.status(201).json({ draft, sendingConfigured: Boolean(process.env.RESEND_API_KEY && process.env.OUTREACH_FROM_EMAIL) }); });
+  app.post("/api/outreach/send", async (req, res) => { const user = await authenticateApiUser(req, res); if (!user) return; const body = req.body || {}; if (body.confirmSend !== true) return res.status(400).json({ error: "Explicit send confirmation is required" }); const drafts = await readJsonStore(OUTREACH_DRAFT_STORE_PATH, []); const draft = drafts.find((item) => item.id === body.draftId && item.ownerId === user.openId); if (!draft) return res.status(404).json({ error: "Draft not found" }); if (!process.env.RESEND_API_KEY || !process.env.OUTREACH_FROM_EMAIL) return res.status(503).json({ error: "Email sending is not configured. Set RESEND_API_KEY and OUTREACH_FROM_EMAIL on Hostinger." }); const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: "Bearer " + process.env.RESEND_API_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.OUTREACH_FROM_EMAIL, to: [draft.to], subject: draft.subject, text: draft.text }) }); if (!response.ok) return res.status(502).json({ error: "Email provider rejected the message" }); const payload = await response.json(); const next = drafts.map((item) => item.id === draft.id ? { ...item, status: "sent", sentAt: new Date().toISOString(), providerId: payload.id || "" } : item); await writeJsonStore(OUTREACH_DRAFT_STORE_PATH, next); res.json({ success: true, draft: next.find((item) => item.id === draft.id) }); });
+
+}
 // server/_core/index.ts
 function isPortAvailable(port) {
   return new Promise((resolve) => {
@@ -1271,6 +1130,7 @@ async function startServer() {
   app.use(express2.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerOpportunityRoutes(app);
   app.use(
     "/api/trpc",
     createExpressMiddleware({

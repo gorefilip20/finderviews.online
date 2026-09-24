@@ -6,12 +6,17 @@ import FinderLogo from "@/components/FinderLogo";
 import { MapView } from "@/components/Map";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
-import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion, isExcludedMarket } from "@/lib/marketCoverage";
+import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion } from "@/lib/marketCoverage";
+import { fetchOverpassData, fetchBusinessDirectoryFallback, type OverpassData } from "@/lib/businessProvider";
+import { mapBusinessRecords } from "@/lib/businessLeads";
+import { enrichBusinessLeadContacts } from "@/lib/contactEnrichment";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Bell,
+  BellRing,
   BriefcaseBusiness,
   Building2,
   CalendarDays,
@@ -19,6 +24,7 @@ import {
   ChevronDown,
   CircleHelp,
   Compass,
+  Copy,
   Crosshair,
   Download,
   ExternalLink,
@@ -26,6 +32,7 @@ import {
   Globe2,
   LoaderCircle,
   Mail,
+  MessageCircle,
   MapPin,
   Menu,
   Phone,
@@ -48,13 +55,18 @@ type Lead = {
   location: string;
   phone: string;
   email?: string;
+  website?: string;
   address?: string;
   verified: boolean;
   hasWebsite: boolean;
   score: number;
   growthPath: string;
   position?: { lat: number; lng: number };
+  mapUrl?: string;
   source?: string;
+  contactSearchUrl?: string;
+  contactSource?: string;
+  contactEnriched?: boolean;
   preview?: boolean;
   presence: "No website listed" | "Limited public presence";
 };
@@ -83,7 +95,7 @@ const faqs = [
   {
     question: "Can I work in any city?",
     answer:
-      `Finder supports ${SUPPORTED_COUNTRY_COUNT} countries across Europe, the Americas, and Asia. African countries are intentionally excluded. Enter a country and then narrow it with a city or neighbourhood; live source coverage can vary by market.`,
+      `Finder supports ${SUPPORTED_COUNTRY_COUNT} countries across Europe, the Americas, Asia, Africa, and Oceania. Enter a country and then narrow it with a city or neighbourhood; live source coverage can vary by market.`,
   },
 ];
 
@@ -112,31 +124,118 @@ export default function Home() {
   const [searched, setSearched] = useState(false);
   const [usingPreview, setUsingPreview] = useState(false);
   const [query, setQuery] = useState("");
+  const [contactFilter, setContactFilter] = useState<"any" | "phone" | "email" | "both">("any");
+  const [scoreFilter, setScoreFilter] = useState<"any" | "high" | "top">("any");
   const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [outreachSavedJobIds, setOutreachSavedJobIds] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [faqOpen, setFaqOpen] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [jobRole, setJobRole] = useState("Product manager");
+  const [jobRole, setJobRole] = useState("All hiring roles");
   const [jobRegion, setJobRegion] = useState<MarketRegion>("Americas");
-  const [jobCountry, setJobCountry] = useState("United States");
+  const [jobCountry, setJobCountry] = useState("Worldwide");
   const [jobFreshness, setJobFreshness] = useState<"24h" | "7d" | "30d">("30d");
-  const [jobSearchRequested, setJobSearchRequested] = useState(false);
+  const [jobSearchRequested, setJobSearchRequested] = useState(true);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [approvedBriefFor, setApprovedBriefFor] = useState<string | null>(null);
+  const [applicationStatuses, setApplicationStatuses] = useState<Record<string, "saved" | "ready" | "applied" | "interview" | "closed">>({});
+  const [jobAlertEnabled, setJobAlertEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+  const [communityText, setCommunityText] = useState("");
+  const [opportunityTitle, setOpportunityTitle] = useState("");
+  const [urgentPost, setUrgentPost] = useState(false);
+  const [communityPosts, setCommunityPosts] = useState<Array<{ id: string; title?: string; description?: string; text?: string; role: string; country: string; state?: string; city?: string; urgent?: boolean; createdAt: string }>>([]);
+  const [locationDirectory, setLocationDirectory] = useState<Array<{ name: string; states?: Array<{ name: string }> }>>([]);
+  const [jobState, setJobState] = useState("");
+  const [jobCity, setJobCity] = useState("");
+  const [locationCities, setLocationCities] = useState<string[]>([]);
+  const [businessState, setBusinessState] = useState("");
+  const [businessCity, setBusinessCity] = useState("");
+  const [businessCities, setBusinessCities] = useState<string[]>([]);
+  const [profile, setProfile] = useState({ companyName: "", companyDescription: "", website: "", contactEmail: "" });
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [pitchProfile, setPitchProfile] = useState({ name: "", offer: "Websites, landing pages, and digital growth systems", proof: "", portfolio: "", availability: "Available for a focused project" });
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
 
   const jobSearchInput = useMemo(() => ({ role: jobRole || "All hiring roles", country: jobCountry, region: jobRegion }), [jobCountry, jobRegion, jobRole]);
-  const hiringSearch = trpc.hiring.search.useQuery(jobSearchInput, { enabled: jobSearchRequested, retry: false, refetchOnWindowFocus: false });
+  const hiringSearch = trpc.hiring.search.useQuery(jobSearchInput, { enabled: jobSearchRequested, retry: false, refetchOnWindowFocus: false, refetchInterval: jobAlertEnabled ? 30 * 60 * 1000 : false });
   const hiringBrief = trpc.hiring.brief.useMutation({
     onSuccess: () => toast.success("Hiring brief prepared from the public job listing."),
     onError: () => toast.error("Finder could not prepare that brief just now. Please try again."),
   });
+  const selectedCountryLocation = locationDirectory.find((item) => item.name === jobCountry);
+  const availableStates = selectedCountryLocation?.states?.map((item) => item.name) || [];
+  const availableCities = locationCities;
+  const selectedBusinessCountry = locationDirectory.find((item) => item.name === country);
+  const businessStates = selectedBusinessCountry?.states?.map((item) => item.name) || [];
   const freshnessMaxHours = jobFreshness === "24h" ? 24 : jobFreshness === "7d" ? 168 : 720;
   const freshnessLabel = jobFreshness === "24h" ? "24 hours" : jobFreshness === "7d" ? "7 days" : "30 days";
   const allJobs = hiringSearch.data?.jobs || [];
-  const jobs = useMemo(() => allJobs.filter((job) => job.ageHours <= freshnessMaxHours), [allJobs, freshnessMaxHours]);
+  const jobs = allJobs.filter((job) => job.ageHours <= freshnessMaxHours);
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || jobs[0];
+
+  useEffect(() => {
+    try {
+      const savedAlert = JSON.parse(localStorage.getItem("finderviews-job-alert") || "null");
+      if (savedAlert?.role) { setJobAlertEnabled(true); setAlertEmail(savedAlert.email || ""); }
+      const savedPosts = JSON.parse(localStorage.getItem("finderviews-community-posts") || "[]");
+      if (Array.isArray(savedPosts)) setCommunityPosts(savedPosts.slice(0, 12));
+      const savedProfile = JSON.parse(localStorage.getItem("finderviews-employer-profile") || "null");
+      if (savedProfile) setProfile(savedProfile);
+      const savedPitch = JSON.parse(localStorage.getItem("finderviews-pitch-profile") || "null");
+      if (savedPitch) setPitchProfile((current) => ({ ...current, ...savedPitch }));
+      const savedApplicationStatuses = JSON.parse(localStorage.getItem("finderviews-application-statuses") || "{}");
+      if (savedApplicationStatuses && typeof savedApplicationStatuses === "object") setApplicationStatuses(savedApplicationStatuses);
+
+    } catch { /* local storage can be unavailable in private browsing */ }
+    fetch("https://countriesnow.space/api/v0.1/countries/states").then((response) => response.ok ? response.json() : null).then((payload) => { if (Array.isArray(payload?.data)) setLocationDirectory(payload.data); }).catch(() => undefined);
+    const syncPosts = (event: StorageEvent) => { if (event.key === "finderviews-community-posts") { try { const next = JSON.parse(event.newValue || "[]"); if (Array.isArray(next)) setCommunityPosts(next.slice(0, 12)); } catch { /* ignore malformed local data */ } } };
+    window.addEventListener("storage", syncPosts);
+    return () => window.removeEventListener("storage", syncPosts);
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetch("/api/outreach/leads", { credentials: "include" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (Array.isArray(payload?.leads)) setOutreachSavedJobIds(payload.leads.map((lead: { sourceUrl?: string }) => lead.sourceUrl).filter(Boolean));
+    }).catch(() => undefined);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    const loadProfile = () => fetch("/api/employer-profile", { credentials: "include" }).then((response) => response.ok ? response.json() : null).then((payload) => { if (!cancelled && payload?.profile) { setProfile(payload.profile); setProfileSaved(true); } }).catch(() => undefined);
+    void loadProfile();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const refreshUrgent = () => fetch("/api/opportunities", { credentials: "include" }).then((response) => response.ok ? response.json() : null).then((payload) => { if (Array.isArray(payload?.opportunities)) setCommunityPosts(payload.opportunities.slice(0, 12)); }).catch(() => undefined);
+    void refreshUrgent();
+    const timer = window.setInterval(refreshUrgent, 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!jobCountry || !jobState) { setLocationCities([]); return; }
+    fetch("https://countriesnow.space/api/v0.1/countries/state/cities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: jobCountry, state: jobState }) }).then((response) => response.ok ? response.json() : null).then((payload) => { setLocationCities(Array.isArray(payload?.data) ? payload.data : []); }).catch(() => setLocationCities([]));
+  }, [jobCountry, jobState]);
+
+  useEffect(() => {
+    setBusinessState("");
+    setBusinessCity("");
+    setBusinessCities([]);
+    setLocation("");
+  }, [country]);
+
+  useEffect(() => {
+    if (!country || !businessState) { setBusinessCities([]); return; }
+    fetch("https://countriesnow.space/api/v0.1/countries/state/cities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country, state: businessState }) })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => setBusinessCities(Array.isArray(payload?.data) ? payload.data : []))
+      .catch(() => setBusinessCities([]));
+  }, [country, businessState]);
 
   useEffect(() => {
     if (jobs.length > 0) setSelectedJobId(jobs[0].id);
@@ -155,11 +254,15 @@ export default function Home() {
 
   const visibleLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return leads;
-    return leads.filter((lead) =>
-      [lead.name, lead.category, lead.location, lead.growthPath].some((value) => value.toLowerCase().includes(term)),
-    );
-  }, [leads, query]);
+    return leads.filter((lead) => {
+      const hasPhone = Boolean(lead.phone && !lead.phone.toLowerCase().includes("no public"));
+      const hasEmail = Boolean(lead.email);
+      const matchesContact = contactFilter === "any" || (contactFilter === "phone" && hasPhone) || (contactFilter === "email" && hasEmail) || (contactFilter === "both" && hasPhone && hasEmail);
+      const matchesScore = scoreFilter === "any" || (scoreFilter === "high" && lead.score >= 80) || (scoreFilter === "top" && lead.score >= 90);
+      const matchesText = !term || [lead.name, lead.category, lead.location, lead.growthPath].some((value) => value.toLowerCase().includes(term));
+      return matchesContact && matchesScore && matchesText;
+    });
+  }, [contactFilter, leads, query, scoreFilter]);
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -188,53 +291,54 @@ export default function Home() {
     }
   };
 
-  const marketLabel = `${location.trim() ? `${location.trim()}, ` : ""}${country}`;
+  const marketLabel = `${businessCity.trim() ? `${businessCity.trim()}, ` : ""}${country}`;
 
   const runLiveSearch = async () => {
-    if (isExcludedMarket(`${country} ${location}`)) {
-      toast.error("Finder supports Europe, the Americas, and Asia. African markets are excluded from this search.");
+    if (!businessCity) {
+      toast.error("Choose a city before searching for local businesses.");
       return;
     }
     setIsSearching(true);
     setSearched(true);
     try {
-      const cityText = location.trim();
-      type GeoResult = { lat: string; lng?: string; lon?: string; boundingbox?: string[]; type?: string; class?: string };
-      const nominatimSearch = async (params: Record<string, string>) => {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?` + new URLSearchParams({ ...params, format: "json", limit: "1" }),
-          { headers: { Accept: "application/json" } },
+      const cityText = businessCity.trim();
+      const geoQuery = cityText ? `${cityText}, ${country}` : country;
+      const geoParams: Record<string, string> = { q: geoQuery, format: "json", limit: "1" };
+      if (!cityText) geoParams.featuretype = "city";
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?` + new URLSearchParams(geoParams),
+        { headers: { "Accept": "application/json" } },
+      );
+      let geoData = (await geoRes.json()) as Array<{ lat: string; lng?: string; lon?: string; boundingbox?: string[]; type?: string }>;
+      if (!geoData.length && !cityText) {
+        const fallbackRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?` +
+          new URLSearchParams({ q: `capital city ${country}`, format: "json", limit: "1" }),
+          { headers: { "Accept": "application/json" } },
         );
-        if (!res.ok) return [];
-        return (await res.json()) as GeoResult[];
-      };
-
-      let geoData: GeoResult[] = [];
-      if (cityText) {
-        geoData = await nominatimSearch({ q: `${cityText}, ${country}` });
-        if (!geoData.length) geoData = await nominatimSearch({ q: cityText, countrycodes: "" });
-      } else {
-        geoData = await nominatimSearch({ q: country });
+        geoData = (await fallbackRes.json()) as typeof geoData;
+      }
+      if (!geoData.length) {
+        const lastRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?` +
+          new URLSearchParams({ q: country, format: "json", limit: "1" }),
+          { headers: { "Accept": "application/json" } },
+        );
+        geoData = (await lastRes.json()) as typeof geoData;
       }
       if (!geoData.length) {
         toast.error("Could not locate that area. Try adding a city name.");
         setIsSearching(false);
         return;
       }
-      const geo = geoData[0];
-      const center = { lat: parseFloat(geo.lat), lng: parseFloat(geo.lon || geo.lng || "0") };
-      if (Number.isNaN(center.lat) || Number.isNaN(center.lng)) {
-        toast.error("Could not locate that area. Try a different search.");
-        setIsSearching(false);
-        return;
-      }
-      const bbox = geo.boundingbox;
-      const isCountryLevel = !cityText || geo.class === "boundary" || geo.type === "country" || geo.type === "administrative";
+      const center = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon || geoData[0].lng || "0") };
+      const bbox = geoData[0].boundingbox;
+      const isCountryLevel = !cityText && geoData[0].type !== "city" && geoData[0].type !== "town";
       let radius: number;
       if (isCountryLevel) {
-        radius = 30000;
+        radius = 25000;
       } else if (bbox) {
-        radius = Math.min(30000, Math.max(3000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000));
+        radius = Math.min(10000, Math.max(3000, Math.abs(parseFloat(bbox[1]) - parseFloat(bbox[0])) * 111000));
       } else {
         radius = 8000;
       }
@@ -278,38 +382,23 @@ export default function Home() {
         }
       })();
 
-      const overpassQuery = `[out:json][timeout:25];(${categoryUnionMembers.join("")});out center body 50;`;
-      let overpassData: {
-        elements: Array<{
-          id: number;
-          type: string;
-          lat?: number;
-          lon?: number;
-          center?: { lat: number; lon: number };
-          tags?: Record<string, string>;
-        }>;
-      };
+      const overpassQuery = `[out:json][timeout:15];(${categoryUnionMembers.join("")});out center tags 50;`;
+      let overpassData: OverpassData;
       try {
-        const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
-          method: "POST",
-          body: `data=${encodeURIComponent(overpassQuery)}`,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        });
-        if (!overpassRes.ok) {
-          setLeads([]);
-          setSelectedLead(null);
-          setUsingPreview(false);
-          if (overpassRes.status === 429) {
-            toast.error("The data source is rate-limited. Wait a moment and try again.");
-          } else if (overpassRes.status === 504 || overpassRes.status === 408) {
-            toast.message("That area timed out. Try narrowing your search with a specific city name.");
-          } else {
-            toast.message("The data source returned an error. Try a different city or category.");
-          }
-          setIsSearching(false);
-          return;
+        const providerData = await fetchOverpassData(overpassQuery);
+        if (!providerData) {
+          const fallbackTerm = category === "All local businesses" ? "business" : category;
+          overpassData = await fetchBusinessDirectoryFallback(fallbackTerm, marketLabel);
+        } else overpassData = providerData;
+
+        // A healthy Overpass response can still contain no matching records when a
+        // mirror is stale, rate-limited, or applies a narrower interpretation of
+        // the category query. Treat an empty payload like a provider miss and use
+        // the public Nominatim directory fallback instead of showing a false zero.
+        if (!Array.isArray(overpassData.elements) || overpassData.elements.length === 0) {
+          const fallbackTerm = category === "All local businesses" ? "business" : category;
+          overpassData = await fetchBusinessDirectoryFallback(fallbackTerm, marketLabel);
         }
-        overpassData = (await overpassRes.json()) as typeof overpassData;
       } catch {
         setLeads([]);
         setSelectedLead(null);
@@ -319,39 +408,16 @@ export default function Home() {
         return;
       }
 
-      const nextLeads = overpassData.elements.reduce<Lead[]>((results, el) => {
-        if (!el.tags?.name) return results;
-        const lat = el.lat ?? el.center?.lat;
-        const lon = el.lon ?? el.center?.lon;
-        if (lat === undefined || lon === undefined) return results;
-        const tags = el.tags;
-        const hasWebsite = !!(tags.website || tags["contact:website"] || tags.url);
-        const hasPhone = !!(tags.phone || tags["contact:phone"]);
-        const hasNoWebsite = !hasWebsite;
-        const hasLimitedPublicPresence = !hasWebsite || !hasPhone;
-        const qualifies = presenceMode === "No listed website" ? hasNoWebsite
-          : presenceMode === "Limited public presence" ? hasLimitedPublicPresence
-          : hasNoWebsite || hasLimitedPublicPresence;
-        if (!qualifies) return results;
-        const businessType = tags.shop || tags.amenity || tags.office || tags.craft || category;
-        results.push({
-          id: `osm-${el.type}-${el.id}`,
-          name: tags.name,
-          category: businessType.replaceAll("_", " "),
-          location: [tags["addr:city"], tags["addr:state"], country].filter(Boolean).join(", ") || marketLabel,
-          phone: tags.phone || tags["contact:phone"] || "No public phone listed",
-          email: tags.email || tags["contact:email"] ? "Public email available" : undefined,
-          address: [tags["addr:housenumber"], tags["addr:street"], tags["addr:city"]].filter(Boolean).join(", ") || undefined,
-          verified: true,
-          hasWebsite,
-          score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
-          growthPath: "Review presence and propose next step",
-          position: { lat, lng: lon },
-          source: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-          presence: hasNoWebsite ? "No website listed" : "Limited public presence",
-        });
-        return results;
-      }, []).slice(0, 12);
+      const mappedLeads: Lead[] = mapBusinessRecords(overpassData.elements, {
+        country,
+        marketLabel,
+        category,
+        presenceMode,
+      }).map((lead) => ({
+        ...lead,
+        score: Math.min(96, 72 + Math.floor(Math.random() * 22)),
+      }));
+      const nextLeads: Lead[] = await enrichBusinessLeadContacts(mappedLeads);
 
       if (nextLeads.length === 0) {
         setLeads([]);
@@ -376,25 +442,138 @@ export default function Home() {
     }
   };
 
+  const saveLeadToOutreach = async (lead: Lead) => {
+    if (!isAuthenticated) { toast.message("Sign in to sync saved leads and outreach drafts across devices."); startLogin(); return; }
+    const response = await fetch("/api/outreach/leads", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: lead.name, company: lead.name, sourceUrl: lead.source || "https://www.openstreetmap.org/", geography: lead.location, contactEmail: lead.email, contactUrl: lead.source }) });
+    if (!response.ok) throw new Error("lead save failed");
+    toast.success("Lead added to your outreach queue.");
+  };
+
   const toggleSaved = (id: string) => {
     setSavedIds((current) => {
       const saved = current.includes(id);
+      const lead = leads.find((item) => item.id === id);
+      if (!saved && lead) void saveLeadToOutreach(lead).catch(() => toast.error("Lead saved locally, but could not sync to the outreach queue."));
       toast.success(saved ? "Lead removed from your outreach set." : "Lead saved to your outreach set.");
       return saved ? current.filter((value) => value !== id) : [...current, id];
     });
+  };
+  const createLocalLeadDraft = async () => {
+    if (!selectedLead) return;
+    if (!selectedLead.email || !/^\S+@\S+\.\S+$/.test(selectedLead.email)) {
+      toast.message("No public email is listed for this business. Use the public phone or listing link and respect the business's preferred contact route.");
+      return;
+    }
+    if (!isAuthenticated) { toast.message("Sign in to create an outreach draft."); startLogin(); return; }
+    try {
+      const response = await fetch("/api/outreach/drafts", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: selectedLead.email, subject: `A simple website idea for ${selectedLead.name}`, text: `Hello ${selectedLead.name} team,\n\nI found your public business listing while researching ${selectedLead.category.toLowerCase()} businesses in ${selectedLead.location}. I noticed that no standalone website is listed, so I wanted to ask whether improving your online presence is something you are considering.\n\nIf useful, I can share a short, no-pressure idea tailored to your business.\n\nBest,\n[Your name]\n\nPublic listing: ${selectedLead.source || "https://www.openstreetmap.org/"}`, leadId: selectedLead.source || selectedLead.id }) });
+      if (!response.ok) throw new Error("draft failed");
+      toast.success("Message draft saved for review. Nothing was sent automatically.");
+    } catch { toast.error("The message draft could not be saved."); }
+  };
+  const publicPhone = selectedLead?.phone && !selectedLead.phone.toLowerCase().includes("no public") ? selectedLead.phone : "";
+  const phoneHref = publicPhone ? `tel:${publicPhone.replace(/[^+\d]/g, "")}` : "";
+  const whatsappHref = publicPhone ? `https://wa.me/${publicPhone.replace(/\D/g, "")}?text=${encodeURIComponent(`Hello ${selectedLead?.name || "there"}, I found your public business listing and wanted to share a short idea about improving your online presence. Is this the right contact route?`)}` : "";
+  const openPublicContactSearch = () => {
+    if (selectedLead?.website) { window.open(selectedLead.website, "_blank", "noopener,noreferrer"); return; }
+    if (selectedLead?.contactSearchUrl) { window.open(selectedLead.contactSearchUrl, "_blank", "noopener,noreferrer"); return; }
+    toast.message("No public website or contact route was listed. Verify the business manually before reaching out.");
+  };
+
+  const saveSelectedJobToOutreach = async () => {
+    if (!selectedJob) return;
+    if (!isAuthenticated) { toast.message("Sign in to save jobs to the outreach queue."); startLogin(); return; }
+    try {
+      const response = await fetch("/api/outreach/leads", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: selectedJob.title, company: selectedJob.company, sourceUrl: selectedJob.sourceUrl, geography: selectedJob.geography, contactEmail: selectedJob.applyEmail, contactUrl: selectedJob.companyWebsite || selectedJob.contactSearchUrl }) });
+      if (!response.ok) throw new Error("job save failed");
+      setOutreachSavedJobIds((current) => current.includes(selectedJob.sourceUrl) ? current : [...current, selectedJob.sourceUrl]);
+      toast.success("Job added to your outreach queue.");
+    } catch { toast.error("The job could not be added to your outreach queue."); }
+  };
+
+  const createOutreachDraft = async () => {
+    if (!selectedJob?.applyEmail) { toast.message("This listing has no public email. Open the public contact route or original application page instead."); return; }
+    if (!isAuthenticated) { toast.message("Sign in to create an outreach draft."); startLogin(); return; }
+    try {
+      const response = await fetch("/api/outreach/drafts", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: selectedJob.applyEmail, subject: `A practical idea for ${selectedJob.company}'s ${selectedJob.title} hiring need`, text: `Hello ${selectedJob.company} team,\n\nI saw your public ${selectedJob.title} listing and wanted to share a practical idea that may support this hiring need. If useful, I would be glad to send a short overview.\n\nBest,\n[Your name]\n\nPublic source: ${selectedJob.sourceUrl}`, leadId: selectedJob.sourceUrl }) });
+      if (!response.ok) throw new Error("draft failed");
+      toast.success("Draft saved for review. Nothing was sent automatically.");
+    } catch { toast.error("The outreach draft could not be saved."); }
+  };
+
+  const updateApplicationStatus = (status: "saved" | "ready" | "applied" | "interview" | "closed") => {
+    if (!selectedJob) return;
+    setApplicationStatuses((current) => {
+      const next = { ...current, [selectedJob.sourceUrl]: status };
+      localStorage.setItem("finderviews-application-statuses", JSON.stringify(next));
+      return next;
+    });
+    toast.success(status === "applied" ? "Marked applied. Keep the employer confirmation in your records." : "Application status updated.");
   };
 
   const exportPreview = () => {
     toast.message("Export is ready to connect once Finder is linked to your research workflow.");
   };
+  const pitchText = `Hello, I’m ${pitchProfile.name || "[your name]"}. I help teams with ${pitchProfile.offer.toLowerCase()}. ${pitchProfile.proof ? `Recent proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.availability}. ${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}` : "I can share a short relevant example if useful."}`;
+  const savePitchProfile = () => {
+    localStorage.setItem("finderviews-pitch-profile", JSON.stringify(pitchProfile));
+    toast.success("Your opportunity profile is ready to reuse.");
+  };
+  const copyPitch = async () => {
+    try { await navigator.clipboard.writeText(pitchText); toast.success("Pitch copied. Personalize it before sending."); } catch { toast.message("Copy is unavailable here; select the pitch text manually."); }
+  };
 
   const runHiringSearch = () => {
-    if (isExcludedMarket(jobCountry)) {
-      toast.error("Finder supports Europe, the Americas, and Asia. African markets are excluded from this search.");
-      return;
-    }
     setJobSearchRequested(true);
     void hiringSearch.refetch();
+  };
+
+  const toggleJobAlert = async () => {
+    if (jobAlertEnabled) {
+      localStorage.removeItem("finderviews-job-alert");
+      setJobAlertEnabled(false);
+      toast.message("Job alert paused for this search.");
+      return;
+    }
+    const email = alertEmail.trim();
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+      toast.error("Enter a valid email address or leave it blank for browser alerts.");
+      return;
+    }
+    localStorage.setItem("finderviews-job-alert", JSON.stringify({ role: jobRole, country: jobCountry, region: jobRegion, email, createdAt: new Date().toISOString() }));
+    setJobAlertEnabled(true);
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch { /* browser may block permission prompts */ }
+    }
+    toast.success(`Alert saved for ${jobRole || "all roles"} in ${jobCountry}.`);
+  };
+
+  const publishCommunityPost = async () => {
+    if (!isAuthenticated) { toast.message("Sign in before publishing an opportunity."); startLogin(); return; }
+    const text = communityText.trim();
+    const title = opportunityTitle.trim();
+    if (title.length < 4 || text.length < 10) { toast.error("Add a short title and at least 10 characters of useful detail."); return; }
+    try {
+      const response = await fetch("/api/opportunities", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, description: text, role: jobRole || "All roles", country: jobCountry, state: jobState, city: jobCity, urgent: urgentPost }) });
+      if (!response.ok) throw new Error("publish failed");
+      const payload = await response.json();
+      if (payload.opportunity) setCommunityPosts((current) => [payload.opportunity, ...current].slice(0, 12));
+      setOpportunityTitle(""); setCommunityText(""); setUrgentPost(false);
+      toast.success(urgentPost ? "Urgent opportunity published to the live board." : "Opportunity published to the live board.");
+    } catch { toast.error("The opportunity could not be published. Please try again."); }
+  };
+
+  const saveEmployerProfile = async () => {
+    if (!isAuthenticated) { toast.message("Sign in to manage your employer profile."); startLogin(); return; }
+    if (!profile.companyName.trim() || !profile.contactEmail.trim()) { toast.error("Company name and contact email are required."); return; }
+    try {
+      const response = await fetch("/api/employer-profile", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
+      if (!response.ok) throw new Error("profile save failed");
+      const payload = await response.json();
+      if (payload.profile) setProfile(payload.profile);
+      setProfileSaved(true);
+      toast.success("Employer profile saved securely for your account.");
+    } catch { toast.error("The employer profile could not be saved. Please try again."); }
   };
 
   const requestHiringBrief = () => {
@@ -417,6 +596,12 @@ export default function Home() {
       sourceUrl: selectedJob.sourceUrl,
     });
   };
+  const recruiterSearchUrl = selectedJob ? `https://www.google.com/search?q=${encodeURIComponent(`${selectedJob.company} ${selectedJob.title} recruiter hiring manager LinkedIn`)}` : "";
+  const applicationMessage = selectedJob ? `Hello ${selectedJob.company} hiring team,\n\nI’m applying for the ${selectedJob.title} role because my experience in ${pitchProfile.offer.toLowerCase()} can help with the work described in the public listing. ${pitchProfile.proof ? `Relevant proof: ${pitchProfile.proof}. ` : ""}${pitchProfile.portfolio ? `Portfolio: ${pitchProfile.portfolio}. ` : ""}I would welcome the chance to explain how I could contribute.\n\nBest,\n${pitchProfile.name || "[Your name]"}` : "";
+  const copyApplicationMessage = async () => {
+    if (!applicationMessage) return;
+    try { await navigator.clipboard.writeText(applicationMessage); toast.success("Tailored application message copied. Personalize it before sending."); } catch { toast.message("Copy is unavailable; select the message manually."); }
+  };
 
 
   return (
@@ -431,6 +616,8 @@ export default function Home() {
           <button onClick={() => scrollTo("how-it-works")}>How it works</button>
           <button onClick={() => scrollTo("finder-workspace")}>Explore leads</button>
           <button onClick={() => scrollTo("hiring-workspace")}>Hiring signals</button>
+          <button onClick={() => scrollTo("community-board")}>Opportunity board</button>
+          <button onClick={() => scrollTo("employer-profile")}>Employer profile</button>
           <button onClick={() => scrollTo("growth-path")}>Growth outcomes</button>
           <button onClick={() => scrollTo("faq")}>FAQ</button>
         </nav>
@@ -449,9 +636,9 @@ export default function Home() {
           <div className="hero-map" aria-hidden="true" />
           <div className="hero-grid">
             <div className="hero-copy">
-              <div className="eyebrow"><span className="signal-dot" /> Europe, the Americas + Asia</div>
+              <div className="eyebrow"><span className="signal-dot" /> Worldwide coverage</div>
               <h1>Find the businesses<br />ready to <em>move.</em></h1>
-              <p className="hero-lede">Finderviews searches {SUPPORTED_COUNTRY_COUNT} eligible countries across Europe, the Americas, and Asia for businesses with no listed website, a limited public presence, or a fresh hiring need—so your offer reaches them when change is already underway.</p>
+              <p className="hero-lede">Finderviews searches {SUPPORTED_COUNTRY_COUNT} countries worldwide for businesses with no listed website, a limited public presence, or a fresh hiring need—so your offer reaches them when change is already underway.</p>
               <div className="hero-actions">
                 <button className="button-primary" onClick={() => scrollTo("finder-workspace")}>
                   Explore opportunities <ArrowDownRight size={17} strokeWidth={2.5} />
@@ -481,15 +668,28 @@ export default function Home() {
                 <label className="field-label" htmlFor="hero-country">Country</label>
                 <div className="select-wrap">
                   <MapPin size={17} />
-                  <select id="hero-country" value={country} onChange={(event) => { setCountry(event.target.value); setLocation(""); }}>
+                  <select id="hero-country" value={country} onChange={(event) => setCountry(event.target.value)}>
                     {MARKET_COVERAGE[region].map((option) => <option key={option}>{option}</option>)}
                   </select>
                   <ChevronDown size={16} />
                 </div>
-                <label className="field-label" htmlFor="hero-location">City or local area <span>(optional)</span></label>
-                <div className="input-wrap">
-                  <MapPin size={18} />
-                  <input id="hero-location" value={location} onChange={(event) => setLocation(event.target.value)} placeholder={`e.g. city in ${country}`} />
+                <label className="field-label" htmlFor="hero-state">State / province</label>
+                <div className="select-wrap">
+                  <MapPin size={17} />
+                  <select id="hero-state" value={businessState} onChange={(event) => setBusinessState(event.target.value)} disabled={locationDirectory.length === 0 || businessStates.length === 0}>
+                    <option value="">{locationDirectory.length === 0 ? "Loading states…" : businessStates.length ? "Choose a state / province" : "No state list available"}</option>
+                    {businessStates.map((option) => <option key={option}>{option}</option>)}
+                  </select>
+                  <ChevronDown size={16} />
+                </div>
+                <label className="field-label" htmlFor="hero-location">City <span>(required)</span></label>
+                <div className="select-wrap">
+                  <MapPin size={17} />
+                  <select id="hero-location" value={businessCity} onChange={(event) => { setBusinessCity(event.target.value); setLocation(event.target.value); }} disabled={!businessState || businessCities.length === 0}>
+                    <option value="">{!businessState ? "Choose a state first" : businessCities.length ? "Choose a city" : "Loading cities…"}</option>
+                    {businessCities.map((option) => <option key={option}>{option}</option>)}
+                  </select>
+                  <ChevronDown size={16} />
                 </div>
                 <label className="field-label" htmlFor="hero-category">Business category</label>
                 <div className="select-wrap">
@@ -508,10 +708,10 @@ export default function Home() {
                   <ChevronDown size={16} />
                 </div>
               </div>
-              <button className="button-primary button-primary--wide" onClick={runLiveSearch} disabled={isSearching}>
+              <button className="button-primary button-primary--wide" onClick={runLiveSearch} disabled={isSearching || !businessCity}>
                 {isSearching ? <><LoaderCircle className="spin" size={17} /> Checking listings</> : <><Search size={17} /> Find opportunities</>}
               </button>
-              <p className="card-note"><span className="signal-dot" /> Africa is excluded. Limited presence is a public-listing signal, not a full digital audit.</p>
+              <p className="card-note"><span className="signal-dot" /> Limited presence is a public-listing signal, not a full digital audit.</p>
             </aside>
           </div>
           <div className="hero-index" aria-hidden="true"><span>01</span><div /><span>GLOBAL FIELD NOTE</span></div>
@@ -528,7 +728,7 @@ export default function Home() {
               <span className="method-index">01</span>
               <div className="method-icon"><Compass size={23} /></div>
               <h3>Choose a market</h3>
-              <p>Choose from eligible countries in Europe, the Americas, and Asia, then focus the search with a city or category.</p>
+              <p>Choose from any country worldwide, then focus the search with a city or category.</p>
             </article>
             <article className="method-item">
               <span className="method-index">02</span>
@@ -562,6 +762,25 @@ export default function Home() {
               <Search size={17} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter this research set" aria-label="Filter lead records" />
             </div>
+            <label className="workspace-filter" aria-label="Filter by contact availability">
+              <Phone size={15} />
+              <select value={contactFilter} onChange={(event) => setContactFilter(event.target.value as typeof contactFilter)}>
+                <option value="any">Any contact</option>
+                <option value="phone">Phone listed</option>
+                <option value="email">Email listed</option>
+                <option value="both">Phone + email</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
+            <label className="workspace-filter" aria-label="Filter by opportunity score">
+              <Crosshair size={15} />
+              <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value as typeof scoreFilter)}>
+                <option value="any">Any score</option>
+                <option value="high">High opportunity (80+)</option>
+                <option value="top">Top priority (90+)</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
             <div className="mini-location-options" aria-label="Quick location choices">
               {locationSuggestions.map((suggestion) => (
                 <button key={suggestion.country} className={cn("location-pill", suggestion.country === country && "location-pill--active")} onClick={() => { setRegion(suggestion.region); setCountry(suggestion.country); setLocation(suggestion.city); }}>{suggestion.country}</button>
@@ -614,9 +833,12 @@ export default function Home() {
                   <div className="detail-facts">
                     <div><Phone size={16} /><span><small>PUBLIC PHONE</small>{selectedLead.phone}</span></div>
                     <div><MapPin size={16} /><span><small>LISTED AREA</small>{selectedLead.address || selectedLead.location}</span></div>
+                    <div><UserRoundCheck size={16} /><span><small>BEST CONTACT</small>Owner or manager</span></div>
                   </div>
                   <div className="growth-callout"><Sparkles size={17} /><div><small>RECOMMENDED ANGLE</small><strong>{selectedLead.growthPath}</strong></div></div>
-                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button><button className="icon-outline" onClick={() => toast.message("Open the public source from a live research result.")} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
+                  <div className="contact-action-grid">{selectedLead.email ? <a className="contact-action contact-action--email" href={`mailto:${selectedLead.email}?subject=${encodeURIComponent(`A simple website idea for ${selectedLead.name}`)}`}><Mail size={15} /> Email {selectedLead.email}</a> : <button className="contact-action" onClick={() => void createLocalLeadDraft()}><Mail size={15} /> Draft message</button>}{phoneHref && <a className="contact-action" href={phoneHref}><Phone size={15} /> Call {selectedLead.phone}</a>}{whatsappHref && <a className="contact-action" href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp / message</a>}<button className="contact-action" onClick={openPublicContactSearch}><ExternalLink size={15} /> Public website / contact</button>{selectedLead.mapUrl && <a className="contact-action" href={selectedLead.mapUrl} target="_blank" rel="noreferrer"><MapPin size={15} /> Open exact map</a>}</div>
+                  <div className="detail-actions"><button className="button-primary" onClick={() => toggleSaved(selectedLead.id)}>{savedIds.includes(selectedLead.id) ? <Check size={16} /> : <Plus size={16} />}{savedIds.includes(selectedLead.id) ? "Saved to outreach" : "Save opportunity"}</button>{selectedLead.email && <button className="button-secondary" onClick={() => void createLocalLeadDraft()}><Mail size={16} /> Save email draft</button>}<button className="icon-outline" onClick={() => { if (selectedLead.source) window.open(selectedLead.source, "_blank", "noopener,noreferrer"); else toast.message("No public listing source is available."); }} aria-label="Open listing source"><ExternalLink size={16} /></button></div>
+                  <small className="detail-source-note">Public listing data only. {selectedLead.contactEnriched ? `Contact fields checked through ${selectedLead.contactSource || "a secondary public directory"}. ` : "No secondary contact match was found. "}Verify the website gap and use the business’s preferred contact route before sending.</small>
                 </div>
               ) : <div className="detail-empty"><Target size={26} /><strong>Select a business record</strong><span>Details, contact clues, and a useful growth angle will appear here.</span></div>}
             </aside>
@@ -638,12 +860,15 @@ export default function Home() {
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
               <label><span>ELIGIBLE REGION</span><div className="hiring-select"><Globe2 size={16} /><select value={jobRegion} onChange={(event) => { const nextRegion = event.target.value as MarketRegion; setJobRegion(nextRegion); setJobCountry(MARKET_COVERAGE[nextRegion][0]); }}>{SUPPORTED_REGIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
-              <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => setJobCountry(event.target.value)}>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>COUNTRY CONTEXT</span><div className="hiring-select"><MapPin size={16} /><select value={jobCountry} onChange={(event) => { setJobCountry(event.target.value); setJobState(""); setJobCity(""); }}><option>Worldwide</option>{MARKET_COVERAGE[jobRegion].map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>STATE / PROVINCE</span><div className="hiring-select"><MapPin size={16} /><select value={jobState} onChange={(event) => { setJobState(event.target.value); setJobCity(""); }} disabled={availableStates.length === 0}><option value="">{availableStates.length ? "All states / provinces" : "Loading states…"}</option>{availableStates.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
+              <label><span>CITY</span><div className="hiring-select"><MapPin size={16} /><select value={jobCity} onChange={(event) => setJobCity(event.target.value)} disabled={availableCities.length === 0}><option value="">{availableCities.length ? "All cities" : "Select a state first"}</option>{availableCities.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>
               <label><span>POSTED WITHIN</span><div className="hiring-select"><CalendarDays size={16} /><select value={jobFreshness} onChange={(event) => setJobFreshness(event.target.value as typeof jobFreshness)}><option value="24h">Today (24 hours)</option><option value="7d">This week (7 days)</option><option value="30d">Last 30 days</option></select><ChevronDown size={15} /></div></label>
               <button className="hiring-search-button" onClick={runHiringSearch} disabled={hiringSearch.isFetching}>{hiringSearch.isFetching ? <><LoaderCircle className="spin" size={17} /> Sourcing roles</> : <><Search size={17} /> Search fresh roles</>}</button>
             </div>
             <div className="role-suggestions"><span>EXPLORE:</span>{hiringRoleSuggestions.map((role) => <button key={role} onClick={() => setJobRole(role)} className={cn(jobRole.toLowerCase() === role.toLowerCase() && "role-suggestion--active")}>{role}</button>)}</div>
-            <p className="hiring-source-note"><CircleHelp size={14} /> Live source: Jobicy. Results filtered to the last {freshnessLabel}. Finderviews applies a direct country filter where Jobicy supports one, otherwise its documented regional filter; every result shows its source geography.</p>
+            <p className="hiring-source-note"><CircleHelp size={14} /> Live sources: Jobicy plus an independent public fallback feed. Results are filtered to the last {freshnessLabel}; every result keeps its original source link, geography, and a public contact route where available.</p>
+            <div className="job-alert-card"><div className="job-alert-card__copy"><span className="job-alert-card__icon">{jobAlertEnabled ? <BellRing size={18} /> : <Bell size={18} />}</span><div><strong>{jobAlertEnabled ? "Alert is active for this search" : "Never miss a fresh hiring signal"}</strong><span>Save this role and market. Finder remembers the search and can request browser permission for notifications.</span></div></div><div className="job-alert-card__actions"><input value={alertEmail} onChange={(event) => setAlertEmail(event.target.value)} placeholder="Email (optional)" type="email" aria-label="Optional alert email" /><button onClick={toggleJobAlert}>{jobAlertEnabled ? "Pause alert" : "Create alert"}</button></div></div>
           </div>
 
           <div className="hiring-body">
@@ -654,7 +879,7 @@ export default function Home() {
               {jobSearchRequested && hiringSearch.isError && <div className="job-empty-state"><CircleHelp size={30} /><strong>The live job source is unavailable right now.</strong><span>The data-ready workspace is still available. Please try the same role again in a moment.</span></div>}
               {jobSearchRequested && !hiringSearch.isFetching && !hiringSearch.isError && jobs.length === 0 && <div className="job-empty-state"><FileClock size={30} /><strong>No roles matched this search{jobFreshness !== "30d" ? ` within ${freshnessLabel}` : ""} right now.</strong><span>{jobFreshness !== "30d" && allJobs.length > 0 ? `${allJobs.length} role${allJobs.length === 1 ? "" : "s"} found in the full 30-day window. Widen the freshness filter to see them.` : "Try a broader role title (like \"developer\" instead of \"web developer\"), change the region, or widen the freshness window."}</span></div>}
               {jobs.length > 0 && <div className="job-list">{jobs.map((job) => <button className={cn("job-row", selectedJob?.id === job.id && "job-row--selected")} key={job.id} onClick={() => setSelectedJobId(job.id)}><div className="job-row__company">{job.companyLogo ? <img src={job.companyLogo} alt="" /> : <span className="company-fallback"><Building2 size={15} /></span>}<span><strong>{job.company}</strong><small>{job.geography} · {job.industry.join(", ") || "Hiring company"}</small></span></div><div className="job-row__role"><strong>{job.title}</strong><span>{job.jobType.join(" · ") || "Employment type not specified"}</span></div><div className="job-row__date"><CalendarDays size={14} /><span>{job.ageHours < 24 ? `${job.ageHours}h ago` : `${Math.floor(job.ageHours / 24)}d ago`}</span></div><ArrowUpRight size={16} /></button>)}</div>}
-              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {freshnessLabel} window.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
+              {hiringSearch.data && <div className="job-results-panel__foot"><span><Check size={14} /> {hiringSearch.data.globalFilterApplied ? "Worldwide source search" : hiringSearch.data.countryFilterApplied ? `${hiringSearch.data.countryContext} source filter applied` : `${hiringSearch.data.regionContext} source region filter applied — verify source geography`} · {freshnessLabel} window · {hiringSearch.data.contactCoverage}% have a direct public route.</span><a href={hiringSearch.data.sourceUrl} target="_blank" rel="noreferrer">Source methodology <ExternalLink size={13} /></a></div>}
             </div>
 
             <aside className="hiring-detail-panel">
@@ -664,16 +889,26 @@ export default function Home() {
                 <h3>{selectedJob.title}</h3>
                 <p>{selectedJob.excerpt || "This fresh listing signals a current hiring need. Review the public source before reaching out."}</p>
                 <div className="hiring-detail-facts"><div><MapPin size={16} /><span><small>SOURCE GEOGRAPHY</small>{selectedJob.geography}</span></div><div><BriefcaseBusiness size={16} /><span><small>ROLE TYPE</small>{selectedJob.jobType.join(" · ") || "Not specified"}</span></div>{selectedJob.salary && <div><Target size={16} /><span><small>LISTED RANGE</small>{selectedJob.salary}</span></div>}</div>
-                <div className="company-contact-results">
-                  <div><small>APPLY FOR THIS ROLE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer" className="apply-link-primary">Open job listing and apply <ExternalLink size={12} /></a></div>
-                  {selectedJob.companyWebsite && <div><small>COMPANY WEBSITE</small><a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Visit company site <ExternalLink size={12} /></a></div>}
-                  {selectedJob.applyEmail && <div><small>APPLICATION EMAIL</small><a href={`mailto:${selectedJob.applyEmail}?subject=Application: ${encodeURIComponent(selectedJob.title)}&body=${encodeURIComponent(`Hi,\n\nI found your ${selectedJob.title} listing and would like to apply.\n\nBest regards`)}`}>{selectedJob.applyEmail} <Mail size={12} /></a></div>}
-                  {!selectedJob.companyWebsite && !selectedJob.applyEmail && <div><small>CONTACT TIP</small><span>Visit the job listing above to find the apply button and company contact details.</span></div>}
-                </div>
-                <div className="hiring-detail-actions"><a className="view-source-button button-primary" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply now <ExternalLink size={16} /></a><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+                <div className="company-contact-results"><div><small>BEST CONTACT ROLE</small><span>Hiring manager, team lead, or talent acquisition</span></div><div><small>COMPANY WEBSITE</small>{selectedJob.companyWebsite ? <a href={selectedJob.companyWebsite} target="_blank" rel="noreferrer">Open company website <ExternalLink size={12} /></a> : <a href={selectedJob.contactSearchUrl} target="_blank" rel="noreferrer">Find public company contact <ExternalLink size={12} /></a>}</div>{selectedJob.applyEmail ? <div><small>APPLY EMAIL</small><a href={`mailto:${selectedJob.applyEmail}`}>{selectedJob.applyEmail}</a></div> : <div><small>APPLICATION ROUTE</small><a href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply on original listing <ExternalLink size={12} /></a></div>}</div>
+                <div className="recruiter-tools"><div><small>FIND THE RIGHT PERSON</small><strong>Search the company, role, and recruiter title together</strong></div><a href={recruiterSearchUrl} target="_blank" rel="noreferrer"><UsersRound size={15} /> Find recruiter / hiring manager <ExternalLink size={13} /></a></div>
+                <div className="application-checklist"><small>APPLICATION READINESS CHECK</small><div className="application-status-row"><small>APPLICATION STATUS</small><select aria-label="Application status" value={applicationStatuses[selectedJob.sourceUrl] || "ready"} onChange={(event) => updateApplicationStatus(event.target.value as "saved" | "ready" | "applied" | "interview" | "closed")}><option value="saved">Saved</option><option value="ready">Ready to apply</option><option value="applied">Applied</option><option value="interview">Interview</option><option value="closed">Closed</option></select></div><div className="application-status-row"><small>APPLICATION STATUS</small><select aria-label="Application status" value={applicationStatuses[selectedJob.sourceUrl] || "ready"} onChange={(event) => updateApplicationStatus(event.target.value as "saved" | "ready" | "applied" | "interview" | "closed")}><option value="saved">Saved</option><option value="ready">Ready to apply</option><option value="applied">Applied</option><option value="interview">Interview</option><option value="closed">Closed</option></select></div><span><Check size={14} /> Match your first two lines to the job title</span><span><Check size={14} /> Include one proof point, not a generic claim</span><span><Check size={14} /> Use the original application route before cold outreach</span><button onClick={() => void copyApplicationMessage()}><Copy size={14} /> Copy tailored application message</button></div>
+                <div className="hiring-detail-actions"><a className="view-source-button" href={selectedJob.sourceUrl} target="_blank" rel="noreferrer">Apply / view job <ExternalLink size={16} /></a><button className="brief-button" onClick={saveSelectedJobToOutreach}>{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? <Check size={16} /> : <Plus size={16} />}{outreachSavedJobIds.includes(selectedJob.sourceUrl) ? "In outreach queue" : "Save for pitch"}</button><button className="brief-button" onClick={createOutreachDraft}>Create email draft <Mail size={16} /></button><button className="brief-button" onClick={requestHiringBrief} disabled={hiringBrief.isPending}>{hiringBrief.isPending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{isAuthenticated ? "Build outreach brief" : "Sign in for AI brief"}</button></div>
+
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
             </aside>
+          </div>
+        </section>
+
+        <section className="community-section" id="community-board"><div className="community-head"><div><span className="section-number">03B / OPPORTUNITY BOARD</span><h2>Local signals are<br /><em>stronger together.</em></h2></div><p>Employers and community members can publish a public opportunity. Urgent posts appear in the live board for 48 hours and the board refreshes every 15 seconds.</p></div><div className="community-grid"><div className="community-compose"><span>SHARE A PUBLIC OPPORTUNITY</span><label className="urgent-toggle"><input type="checkbox" checked={urgentPost} onChange={(event) => setUrgentPost(event.target.checked)} /> I need someone urgently</label><input className="opportunity-title" value={opportunityTitle} onChange={(event) => setOpportunityTitle(event.target.value)} placeholder="Opportunity title, e.g. Weekend barista needed now" maxLength={160} /><textarea value={communityText} onChange={(event) => setCommunityText(event.target.value)} placeholder="Example: A café in Austin is hiring weekend staff — public listing linked in the job details." maxLength={500} /><div><small>{communityText.length}/500 · {[jobCity, jobState, jobCountry].filter(Boolean).join(", ")}</small><button className="button-dark" onClick={publishCommunityPost}>Publish signal <ArrowUpRight size={16} /></button></div></div><div className="community-feed">{communityPosts.length === 0 ? <div className="community-empty"><UsersRound size={25} /><strong>No local signals yet.</strong><span>Be the first to share a useful, public opportunity.</span></div> : communityPosts.map((post) => <article className="community-post" key={post.id}><div><span className="signal-dot" /><small>{post.urgent ? "URGENT · " : ""}{post.role} · {[post.city, post.state, post.country].filter(Boolean).join(", ")}</small></div><strong className="community-post__title">{post.title || post.role}</strong><p>{post.text || post.description}</p><time>{new Date(post.createdAt).toLocaleDateString()}</time></article>)}</div></div></section>
+
+        <section className="employer-section" id="employer-profile"><div className="employer-head"><div><span className="section-number">03C / EMPLOYER PROFILE</span><h2>Be ready when<br /><em>people respond.</em></h2></div><p>Create a clear public employer identity for urgent listings and hiring conversations. Sign-in is required before publishing as an employer.</p></div><div className="employer-card"><div className="employer-status"><span className="signal-dot" /> {isAuthenticated ? "SIGNED IN · PROFILE MANAGEMENT ENABLED" : "SIGN IN REQUIRED TO MANAGE PROFILE"}</div><div className="employer-fields"><label><span>COMPANY NAME</span><input value={profile.companyName} onChange={(event) => setProfile({ ...profile, companyName: event.target.value })} placeholder="Your company or team" /></label><label><span>CONTACT EMAIL</span><input value={profile.contactEmail} onChange={(event) => setProfile({ ...profile, contactEmail: event.target.value })} placeholder="hiring@company.com" type="email" /></label><label><span>PUBLIC WEBSITE</span><input value={profile.website} onChange={(event) => setProfile({ ...profile, website: event.target.value })} placeholder="https://" type="url" /></label><label className="employer-fields__wide"><span>ABOUT THE EMPLOYER</span><textarea value={profile.companyDescription} onChange={(event) => setProfile({ ...profile, companyDescription: event.target.value })} placeholder="What does your team do, and who should apply?" maxLength={700} /></label></div><div className="employer-actions"><small>{profileSaved ? "Saved on this device" : "Keep details accurate and public-facing."}</small><button className="button-dark" onClick={saveEmployerProfile}>{isAuthenticated ? "Save employer profile" : "Sign in to continue"} <ArrowUpRight size={16} /></button></div></div></section>
+
+        <section className="opportunity-cockpit" id="opportunity-cockpit">
+          <div className="opportunity-cockpit__head"><div><span className="section-number">04 / OPPORTUNITY COCKPIT</span><h2>Make the next move<br /><em>easy to send.</em></h2></div><p>Build your own positioning once, then use it when applying for a role or opening a respectful business conversation. Finder suggests a next step, but you decide what to send.</p></div>
+          <div className="opportunity-cockpit__grid">
+            <div className="pitch-profile-card"><span className="card-topline">YOUR POSITIONING</span><div className="pitch-fields"><label><span>YOUR NAME</span><input value={pitchProfile.name} onChange={(event) => setPitchProfile({ ...pitchProfile, name: event.target.value })} placeholder="Your name" /></label><label><span>WHAT YOU OFFER</span><input value={pitchProfile.offer} onChange={(event) => setPitchProfile({ ...pitchProfile, offer: event.target.value })} placeholder="Your strongest offer" /></label><label><span>PROOF OR CREDIBILITY</span><input value={pitchProfile.proof} onChange={(event) => setPitchProfile({ ...pitchProfile, proof: event.target.value })} placeholder="Example: shipped 12 sites for local teams" /></label><label><span>PORTFOLIO LINK</span><input value={pitchProfile.portfolio} onChange={(event) => setPitchProfile({ ...pitchProfile, portfolio: event.target.value })} placeholder="https://yourportfolio.com" type="url" /></label><label><span>AVAILABILITY</span><select value={pitchProfile.availability} onChange={(event) => setPitchProfile({ ...pitchProfile, availability: event.target.value })}><option>Available for a focused project</option><option>Open to a full-time role</option><option>Available for contract work</option><option>Available for a short discovery call</option></select></label></div><button className="button-dark" onClick={savePitchProfile}>Save my positioning <Check size={16} /></button></div>
+            <div className="pitch-preview-card"><div className="pitch-preview-card__top"><span className="card-topline">REUSABLE INTRO</span><button className="text-link" onClick={() => void copyPitch()}>Copy pitch <Download size={14} /></button></div><p>{pitchText}</p><div className="next-move"><span className="signal-dot" /><div><small>NEXT BEST MOVE</small><strong>{selectedJob ? `Apply to ${selectedJob.company} and tailor your first two lines to “${selectedJob.title}”.` : selectedLead ? `Verify ${selectedLead.name}'s public listing, then offer one specific improvement.` : "Run a focused job or city search, then select one result."}</strong></div></div><div className="cockpit-actions"><button className="button-primary" onClick={() => scrollTo("hiring-workspace")}>Find work <BriefcaseBusiness size={16} /></button><button className="button-secondary" onClick={() => scrollTo("finder-workspace")}>Find clients <Compass size={16} /></button></div></div>
           </div>
         </section>
 
