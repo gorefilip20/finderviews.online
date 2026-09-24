@@ -476,6 +476,35 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .resume-textarea { width:100%; padding:.8rem; border:1px solid rgba(29,36,31,.18); border-radius:.5rem; background:#fff; color:#1d241f; font:inherit; font-size:.72rem; line-height:1.65; resize:vertical; min-height:180px; }
 .resume-upload-card__actions { display:flex; align-items:center; justify-content:space-between; margin-top:.6rem; }
 .resume-upload-card__actions small { color:#7e897e; font-family:"DM Mono",monospace; font-size:.55rem; }
+
+.hiring-tab-bar { display:flex; gap:0; margin-bottom:1.2rem; border-bottom:1px solid rgba(29,36,31,.12); }
+.hiring-tab { display:flex; align-items:center; gap:.4rem; padding:.65rem 1.4rem; font-size:.72rem; font-family:"DM Mono",monospace; letter-spacing:.06em; text-transform:uppercase; background:transparent; border:none; color:#7e897e; cursor:pointer; border-bottom:2px solid transparent; transition:all .18s; }
+.hiring-tab:hover { color:#1d241f; }
+.hiring-tab--active { color:#1d241f; border-bottom-color:#5d8b3c; font-weight:600; }
+
+.community-jobs-section { width:100%; }
+.community-jobs-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.2rem; flex-wrap:wrap; }
+.community-jobs-header h3 { margin:0 0 .25rem; font-size:1.2rem; }
+.community-jobs-header p { margin:0; font-size:.8rem; color:#657064; line-height:1.5; max-width:36rem; }
+.community-jobs-header__actions { display:flex; gap:.5rem; align-items:center; }
+
+.community-job-form { background:#f7f6f1; border:1px solid rgba(29,36,31,.12); border-radius:.75rem; padding:1.2rem; margin-bottom:1.2rem; }
+.community-job-form .card-topline { display:block; margin-bottom:.8rem; }
+.community-job-form__fields { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+.community-job-form__fields label { display:flex; flex-direction:column; gap:.2rem; }
+.community-job-form__fields label span { font-size:.55rem; font-family:"DM Mono",monospace; letter-spacing:.07em; text-transform:uppercase; color:#7e897e; }
+.community-job-form__fields input, .community-job-form__fields select, .community-job-form__fields textarea { padding:.5rem .6rem; border:1px solid rgba(29,36,31,.16); border-radius:.4rem; font-size:.82rem; background:#fff; font-family:inherit; }
+.community-job-form__fields textarea { resize:vertical; min-height:120px; }
+.community-job-form__wide { grid-column:1 / -1; }
+.community-job-form__footer { display:flex; align-items:center; justify-content:space-between; margin-top:.8rem; gap:1rem; }
+.community-job-form__footer small { color:#7e897e; font-size:.6rem; font-family:"DM Mono",monospace; }
+
+.community-apply-section { margin:1rem 0; padding:1rem; background:#f7f6f1; border-radius:.6rem; border:1px solid rgba(29,36,31,.08); }
+.community-apply-section .card-topline { display:block; margin-bottom:.6rem; }
+.community-apply-section label { display:flex; flex-direction:column; gap:.2rem; margin-bottom:.5rem; }
+.community-apply-section label span { font-size:.55rem; font-family:"DM Mono",monospace; letter-spacing:.07em; text-transform:uppercase; color:#7e897e; }
+.community-apply-section input, .community-apply-section textarea { padding:.5rem .6rem; border:1px solid rgba(29,36,31,.16); border-radius:.4rem; font-size:.82rem; background:#fff; font-family:inherit; width:100%; box-sizing:border-box; }
+.community-apply-section textarea { resize:vertical; min-height:80px; }
 .cockpit-actions button { margin:0; padding:.75rem .9rem; }
 .cockpit-actions .button-primary { flex:1; }
 .cockpit-actions .button-secondary { display:inline-flex; align-items:center; justify-content:center; gap:.4rem; border:1px solid #aeb8aa; border-radius:.62rem; background:#edf2e8; color:#314333; font-size:.68rem; font-weight:800; }
@@ -569,4 +598,7 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
   .finder-footer { padding: 3.3rem 1.15rem 1.15rem; }
   .footer-top { grid-template-columns: 1fr; gap: 1.25rem; padding-bottom: 2.6rem; }
   .footer-bottom { align-items: flex-start; flex-direction: column; font-size: .5rem; }
+  .hiring-tab-bar { overflow-x:auto; }
+  .community-job-form__fields { grid-template-columns:1fr; }
+  .community-jobs-header { flex-direction:column; }
 }

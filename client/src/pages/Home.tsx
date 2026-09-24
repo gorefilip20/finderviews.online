@@ -164,6 +164,16 @@ export default function Home() {
   const [resumeSaved, setResumeSaved] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingLeadEmail, setSendingLeadEmail] = useState(false);
+  const [hiringTab, setHiringTab] = useState<"external" | "community">("external");
+  const [communityJobs, setCommunityJobs] = useState<Array<{ id: string; title: string; company: string; description: string; applyEmail?: string; applyUrl?: string; country: string; state: string; city: string; jobType: string; level: string; salaryRange?: string; industry: string[]; status: string; createdAt: string; expiresAt: string; posterName?: string }>>([]);
+  const [communityJobsLoading, setCommunityJobsLoading] = useState(false);
+  const [selectedCommunityJobId, setSelectedCommunityJobId] = useState<string | null>(null);
+  const [postJobForm, setPostJobForm] = useState({ title: "", company: "", description: "", applyEmail: "", applyUrl: "", jobType: "Full-time", level: "Not specified", salaryRange: "", industry: "" });
+  const [postingJob, setPostingJob] = useState(false);
+  const [showPostJobForm, setShowPostJobForm] = useState(false);
+  const [applyingToCommunityJob, setApplyingToCommunityJob] = useState(false);
+  const [applyCoverNote, setApplyCoverNote] = useState("");
+  const [applyEmail, setApplyEmailField] = useState("");
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
 
@@ -670,6 +680,73 @@ export default function Home() {
     });
   };
 
+  const selectedCommunityJob = communityJobs.find((j) => j.id === selectedCommunityJobId) || communityJobs[0] || null;
+
+  const tailorResumeForCommunityJob = () => {
+    if (!selectedCommunityJob) return;
+    if (!resumeText.trim() || resumeText.trim().length < 20) { toast.error("Save your resume first in the Resume section below."); return; }
+    if (!isAuthenticated) { toast.message("Sign in to use AI resume tailoring."); startLogin(); return; }
+    resumeTailor.mutate({
+      resume: resumeText,
+      jobTitle: selectedCommunityJob.title,
+      company: selectedCommunityJob.company,
+      description: selectedCommunityJob.description,
+      jobType: [selectedCommunityJob.jobType],
+      level: selectedCommunityJob.level,
+    });
+  };
+
+  const fetchCommunityJobs = async () => {
+    setCommunityJobsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (jobRole && jobRole !== "All hiring roles") params.set("role", jobRole);
+      if (jobCountry && jobCountry !== "Worldwide") params.set("country", jobCountry);
+      const res = await fetch(`/api/community-jobs?${params.toString()}`);
+      if (!res.ok) throw new Error("fetch failed");
+      const payload = await res.json();
+      setCommunityJobs(payload.jobs || []);
+      if (payload.jobs?.length > 0) setSelectedCommunityJobId(payload.jobs[0].id);
+    } catch { toast.error("Could not load community jobs."); }
+    setCommunityJobsLoading(false);
+  };
+
+  useEffect(() => { if (hiringTab === "community") void fetchCommunityJobs(); }, [hiringTab]);
+
+  const postCommunityJob = async () => {
+    if (!isAuthenticated) { toast.message("Sign in to post a job."); startLogin(); return; }
+    if (!postJobForm.title.trim() || !postJobForm.company.trim() || postJobForm.description.trim().length < 20) { toast.error("Fill in the title, company, and a description (20+ characters)."); return; }
+    if (!postJobForm.applyEmail.trim() && !postJobForm.applyUrl.trim()) { toast.error("Provide an application email or URL so people can apply."); return; }
+    setPostingJob(true);
+    try {
+      const res = await fetch("/api/community-jobs", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: postJobForm.title, company: postJobForm.company, description: postJobForm.description, applyEmail: postJobForm.applyEmail, applyUrl: postJobForm.applyUrl, country: jobCountry, state: jobState, city: jobCity, jobType: postJobForm.jobType, level: postJobForm.level, salaryRange: postJobForm.salaryRange, industry: postJobForm.industry.split(",").map((s) => s.trim()).filter(Boolean) }) });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast.error((err as { error?: string }).error || "Could not post the job."); setPostingJob(false); return; }
+      const payload = await res.json();
+      setCommunityJobs((current) => [payload.job, ...current]);
+      setSelectedCommunityJobId(payload.job.id);
+      setPostJobForm({ title: "", company: "", description: "", applyEmail: "", applyUrl: "", jobType: "Full-time", level: "Not specified", salaryRange: "", industry: "" });
+      setShowPostJobForm(false);
+      toast.success("Job posted to the Finderviews community board.");
+    } catch { toast.error("Could not post the job."); }
+    setPostingJob(false);
+  };
+
+  const applyToCommunityJob = async () => {
+    if (!selectedCommunityJob) return;
+    if (!isAuthenticated) { toast.message("Sign in to apply."); startLogin(); return; }
+    if (!resumeText || resumeText.trim().length < 20) { toast.error("Save your resume first in the Resume section below."); return; }
+    const emailToUse = applyEmail.trim() || profile.contactEmail || "";
+    if (!emailToUse || !/^\S+@\S+\.\S+$/.test(emailToUse)) { toast.error("Enter your email address so the employer can reach you."); return; }
+    setApplyingToCommunityJob(true);
+    try {
+      const res = await fetch(`/api/community-jobs/${selectedCommunityJob.id}/apply`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resume: resumeText, coverNote: applyCoverNote, applicantEmail: emailToUse, applicantName: pitchProfile.name || "" }) });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast.error((err as { error?: string }).error || "Application could not be sent."); setApplyingToCommunityJob(false); return; }
+      toast.success(`Application sent to ${selectedCommunityJob.company}!`);
+      setApplyCoverNote("");
+    } catch { toast.error("Something went wrong sending your application."); }
+    setApplyingToCommunityJob(false);
+  };
+
   return (
     <div className="finder-shell">
       <div className="page-grain" aria-hidden="true" />
@@ -919,10 +996,19 @@ export default function Home() {
               <span className="section-number">03 / FRESH HIRING SIGNALS</span>
               <h2>Find the companies<br />that are building <em>right now.</em></h2>
             </div>
-            <p>Search current public remote-job listings by role and eligible market. Filter by freshness to find opportunities posted <strong>today</strong>, this week, or within the last 30 days, then frame the company need for a useful first conversation.</p>
+            <p>Search current public remote-job listings by role and eligible market, or browse jobs posted directly by employers on the Finderviews community board.</p>
           </div>
 
-          <div className="hiring-search-card">
+          <div className="hiring-tab-bar">
+            <button className={cn("hiring-tab", hiringTab === "external" && "hiring-tab--active")} onClick={() => setHiringTab("external")}>
+              <Globe2 size={15} /> External Jobs
+            </button>
+            <button className={cn("hiring-tab", hiringTab === "community" && "hiring-tab--active")} onClick={() => setHiringTab("community")}>
+              <UsersRound size={15} /> Community Board
+            </button>
+          </div>
+
+          {hiringTab === "external" && <><div className="hiring-search-card">
             <div className="hiring-search-card__top"><span><FileClock size={15} /> FRESHNESS WINDOW</span><span className="freshness-badge">{jobFreshness === "24h" ? "today only" : `≤ ${freshnessLabel} old`}</span></div>
             <div className="hiring-filters">
               <label><span>ROLE OR SKILL</span><div className="hiring-input"><Search size={17} /><input value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. product manager, biochemist, co-founder" /></div></label>
@@ -940,7 +1026,7 @@ export default function Home() {
 
           <div className="hiring-body">
             <div className="job-results-panel">
-              <div className="job-results-panel__top"><div><span>LIVE_HIRING_SIGNAL_FEED</span><small>{hiringSearch.data ? `${jobs.length} fresh role${jobs.length === 1 ? "" : "s"} from ${hiringSearch.data.sourceName}${jobFreshness !== "30d" && allJobs.length !== jobs.length ? ` (${allJobs.length} in 30d)` : ""}` : "Choose a role, country, and run a fresh search."}</small></div><span className={cn("source-status", jobSearchRequested && !hiringSearch.isError && "source-status--active")}><i /> {hiringSearch.isFetching ? "checking" : hiringSearch.data ? "fresh source" : "ready"}</span></div>
+              <div className="job-results-panel__top"><div><span>LIVE HIRING SIGNAL FEED</span><small>{hiringSearch.data ? `${jobs.length} fresh role${jobs.length === 1 ? "" : "s"} from ${hiringSearch.data.sourceName}${jobFreshness !== "30d" && allJobs.length !== jobs.length ? ` (${allJobs.length} in 30d)` : ""}` : "Choose a role, country, and run a fresh search."}</small></div><span className={cn("source-status", jobSearchRequested && !hiringSearch.isError && "source-status--active")}><i /> {hiringSearch.isFetching ? "checking" : hiringSearch.data ? "fresh source" : "ready"}</span></div>
               {!jobSearchRequested && <div className="job-empty-state"><UsersRound size={31} /><strong>Start with a role the company needs.</strong><span>Try product management, social media growth, web development, content, co-founder, life sciences, or operations leadership.</span></div>}
               {jobSearchRequested && hiringSearch.isFetching && <div className="job-empty-state"><LoaderCircle className="spin" size={30} /><strong>Checking hiring signals.</strong><span>Finderviews is searching for matching roles published within the last {freshnessLabel}.</span></div>}
               {jobSearchRequested && hiringSearch.isError && <div className="job-empty-state"><CircleHelp size={30} /><strong>The live job source is unavailable right now.</strong><span>The data-ready workspace is still available. Please try the same role again in a moment.</span></div>}
@@ -966,7 +1052,84 @@ export default function Home() {
                 {hiringBrief.data && <div className="ai-brief"><div className="ai-brief__title"><Sparkles size={15} /> FINDER AI BRIEF <span>PUBLIC DATA ONLY</span></div><div><small>COMPANY NEED</small><p>{hiringBrief.data.companyNeed}</p></div><div><small>LIKELY DECISION-MAKER ROLE</small><p>{hiringBrief.data.likelyDecisionMakerRole}</p></div><div><small>USEFUL OUTREACH ANGLE</small><p>{hiringBrief.data.outreachAngle}</p></div><div className="ai-brief__evidence"><small>PUBLIC EVIDENCE</small><ul>{hiringBrief.data.evidence.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><UserRoundCheck size={16} /><span><small>RECOMMENDED SERVICE</small><strong>{hiringBrief.data.recommendedService}</strong></span></div><p className="ai-brief__caveat">{hiringBrief.data.caveat}</p><div className={cn("brief-review", approvedBriefFor === selectedJob.id && "brief-review--approved")}><span>{approvedBriefFor === selectedJob.id ? <Check size={15} /> : <UserRoundCheck size={15} />}{approvedBriefFor === selectedJob.id ? "Reviewed by you — ready to adapt" : "Review this draft before using it"}</span>{approvedBriefFor !== selectedJob.id && <button onClick={() => { setApprovedBriefFor(selectedJob.id); toast.success("Brief marked reviewed. Adapt it before outreach."); }}>Approve reviewed draft</button>}</div></div>}
               </> : <div className="job-detail-empty"><Sparkles size={29} /><strong>Your company briefing will appear here.</strong><span>Finderviews will show the public job context, source link, and a sign-in protected AI opportunity brief once you select a fresh role.</span></div>}
             </aside>
-          </div>
+          </div></>}
+
+          {hiringTab === "community" && <div className="community-jobs-section">
+            <div className="community-jobs-header">
+              <div>
+                <h3>Community Job Board</h3>
+                <p>Jobs posted directly by employers on Finderviews. No third-party APIs. Apply with your saved resume in one click.</p>
+              </div>
+              <div className="community-jobs-header__actions">
+                <button className="button-dark" onClick={() => { setShowPostJobForm((v) => !v); }}>{showPostJobForm ? <><X size={15} /> Cancel</> : <><Plus size={15} /> Post a job</>}</button>
+                <button className="hiring-search-button" onClick={fetchCommunityJobs} disabled={communityJobsLoading}>{communityJobsLoading ? <><LoaderCircle className="spin" size={15} /> Loading</> : <><Search size={15} /> Refresh</>}</button>
+              </div>
+            </div>
+
+            {showPostJobForm && <div className="community-job-form">
+              <span className="card-topline">POST A NEW JOB</span>
+              <div className="community-job-form__fields">
+                <label><span>JOB TITLE</span><input value={postJobForm.title} onChange={(e) => setPostJobForm({ ...postJobForm, title: e.target.value })} placeholder="e.g. Frontend Developer" maxLength={240} /></label>
+                <label><span>COMPANY NAME</span><input value={postJobForm.company} onChange={(e) => setPostJobForm({ ...postJobForm, company: e.target.value })} placeholder="Your company" maxLength={240} /></label>
+                <label><span>APPLICATION EMAIL</span><input value={postJobForm.applyEmail} onChange={(e) => setPostJobForm({ ...postJobForm, applyEmail: e.target.value })} placeholder="hiring@company.com" type="email" /></label>
+                <label><span>APPLICATION URL (optional)</span><input value={postJobForm.applyUrl} onChange={(e) => setPostJobForm({ ...postJobForm, applyUrl: e.target.value })} placeholder="https://careers.company.com/apply" type="url" /></label>
+                <label><span>JOB TYPE</span><select value={postJobForm.jobType} onChange={(e) => setPostJobForm({ ...postJobForm, jobType: e.target.value })}><option>Full-time</option><option>Part-time</option><option>Contract</option><option>Freelance</option><option>Internship</option></select></label>
+                <label><span>EXPERIENCE LEVEL</span><select value={postJobForm.level} onChange={(e) => setPostJobForm({ ...postJobForm, level: e.target.value })}><option>Not specified</option><option>Entry level</option><option>Mid level</option><option>Senior</option><option>Lead / Manager</option><option>Executive</option></select></label>
+                <label><span>SALARY RANGE (optional)</span><input value={postJobForm.salaryRange} onChange={(e) => setPostJobForm({ ...postJobForm, salaryRange: e.target.value })} placeholder="e.g. $60,000 - $90,000 / year" maxLength={100} /></label>
+                <label><span>INDUSTRY / TAGS (comma-separated)</span><input value={postJobForm.industry} onChange={(e) => setPostJobForm({ ...postJobForm, industry: e.target.value })} placeholder="e.g. Tech, SaaS, Healthcare" maxLength={300} /></label>
+                <label className="community-job-form__wide"><span>JOB DESCRIPTION</span><textarea value={postJobForm.description} onChange={(e) => setPostJobForm({ ...postJobForm, description: e.target.value })} placeholder="Describe the role, responsibilities, requirements, and benefits. Be specific about what you are looking for." maxLength={5000} rows={8} /></label>
+              </div>
+              <div className="community-job-form__footer">
+                <small>{postJobForm.description.length}/5000 characters. Job will be posted for {[jobCity, jobState, jobCountry].filter(Boolean).join(", ") || "Worldwide"} and expire in 30 days.</small>
+                <button className="button-dark" onClick={postCommunityJob} disabled={postingJob}>{postingJob ? <><LoaderCircle className="spin" size={15} /> Publishing</> : <><ArrowUpRight size={15} /> Publish job</>}</button>
+              </div>
+            </div>}
+
+            <div className="hiring-body">
+              <div className="job-results-panel">
+                <div className="job-results-panel__top"><div><span>COMMUNITY_JOB_BOARD</span><small>{communityJobs.length} job{communityJobs.length !== 1 ? "s" : ""} posted by employers on Finderviews</small></div><span className={cn("source-status", communityJobs.length > 0 && "source-status--active")}><i /> {communityJobsLoading ? "loading" : communityJobs.length > 0 ? "live" : "empty"}</span></div>
+                {communityJobsLoading && <div className="job-empty-state"><LoaderCircle className="spin" size={30} /><strong>Loading community jobs.</strong></div>}
+                {!communityJobsLoading && communityJobs.length === 0 && <div className="job-empty-state"><UsersRound size={31} /><strong>No community jobs yet.</strong><span>Be the first to post a job. Click "Post a job" above to get started.</span></div>}
+                {communityJobs.length > 0 && <div className="job-list">{communityJobs.map((job) => <button className={cn("job-row", selectedCommunityJobId === job.id && "job-row--selected")} key={job.id} onClick={() => setSelectedCommunityJobId(job.id)}><div className="job-row__company"><span className="company-fallback"><Building2 size={15} /></span><span><strong>{job.company}</strong><small>{[job.city, job.state, job.country].filter(Boolean).join(", ") || "Remote"} · {job.industry.join(", ") || "Employer"}</small></span></div><div className="job-row__role"><strong>{job.title}</strong><span>{job.jobType} · {job.level}</span></div><div className="job-row__date"><CalendarDays size={14} /><span>{Math.floor((Date.now() - Date.parse(job.createdAt)) / (1000 * 60 * 60)) < 24 ? `${Math.floor((Date.now() - Date.parse(job.createdAt)) / (1000 * 60 * 60))}h ago` : `${Math.floor((Date.now() - Date.parse(job.createdAt)) / (1000 * 60 * 60 * 24))}d ago`}</span></div><ArrowUpRight size={16} /></button>)}</div>}
+              </div>
+
+              <aside className="hiring-detail-panel">
+                {selectedCommunityJob ? <>
+                  <div className="hiring-detail__eyebrow"><span className="signal-dot" /> COMMUNITY JOB POSTING <span>POSTED {Math.floor((Date.now() - Date.parse(selectedCommunityJob.createdAt)) / (1000 * 60 * 60)) < 24 ? `${Math.floor((Date.now() - Date.parse(selectedCommunityJob.createdAt)) / (1000 * 60 * 60))} HOURS` : `${Math.floor((Date.now() - Date.parse(selectedCommunityJob.createdAt)) / (1000 * 60 * 60 * 24))} DAYS`} AGO</span></div>
+                  <div className="hiring-company-line"><Building2 size={19} /><span>{selectedCommunityJob.company}</span></div>
+                  <h3>{selectedCommunityJob.title}</h3>
+                  <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontSize: "0.88rem" }}>{selectedCommunityJob.description}</p>
+                  <div className="hiring-detail-facts">
+                    <div><MapPin size={16} /><span><small>LOCATION</small>{[selectedCommunityJob.city, selectedCommunityJob.state, selectedCommunityJob.country].filter(Boolean).join(", ") || "Remote / Worldwide"}</span></div>
+                    <div><BriefcaseBusiness size={16} /><span><small>JOB TYPE</small>{selectedCommunityJob.jobType}</span></div>
+                    <div><Target size={16} /><span><small>LEVEL</small>{selectedCommunityJob.level}</span></div>
+                    {selectedCommunityJob.salaryRange && <div><Target size={16} /><span><small>SALARY</small>{selectedCommunityJob.salaryRange}</span></div>}
+                  </div>
+                  <div className="company-contact-results">
+                    {selectedCommunityJob.applyEmail && <div><small>APPLICATION EMAIL</small><a href={`mailto:${selectedCommunityJob.applyEmail}`}>{selectedCommunityJob.applyEmail}</a></div>}
+                    {selectedCommunityJob.applyUrl && <div><small>APPLICATION URL</small><a href={selectedCommunityJob.applyUrl} target="_blank" rel="noreferrer">Apply on employer site <ExternalLink size={12} /></a></div>}
+                  </div>
+                  <div className="community-apply-section">
+                    <span className="card-topline">APPLY WITH YOUR RESUME</span>
+                    {!resumeSaved && <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Save your resume in the Resume section below before applying.</p>}
+                    {resumeSaved && <>
+                      <label><span>YOUR EMAIL</span><input value={applyEmail} onChange={(e) => setApplyEmailField(e.target.value)} placeholder="your@email.com" type="email" /></label>
+                      <label><span>COVER NOTE (optional)</span><textarea value={applyCoverNote} onChange={(e) => setApplyCoverNote(e.target.value)} placeholder="A short note about why you are a great fit for this role." maxLength={2000} rows={4} /></label>
+                    </>}
+                  </div>
+                  <div className="hiring-detail-actions">
+                    {selectedCommunityJob.applyEmail && resumeSaved && <button className="view-source-button" onClick={applyToCommunityJob} disabled={applyingToCommunityJob}>{applyingToCommunityJob ? <><LoaderCircle className="spin" size={16} /> Sending</> : <><Send size={16} /> Apply now</>}</button>}
+                    {selectedCommunityJob.applyUrl && <a className="brief-button" href={selectedCommunityJob.applyUrl} target="_blank" rel="noreferrer">Apply on employer site <ExternalLink size={16} /></a>}
+                    {selectedCommunityJob.applyEmail && <a className="brief-button" href={`mailto:${selectedCommunityJob.applyEmail}?subject=Application for ${encodeURIComponent(selectedCommunityJob.title)}`}>Email directly <Mail size={16} /></a>}
+                    <button className="brief-button" onClick={tailorResumeForCommunityJob} disabled={resumeTailor.isPending}>{resumeTailor.isPending ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{resumeSaved ? "Tailor my resume" : "Save resume first"}</button>
+                  </div>
+
+                  {resumeTailor.data && <div className="ai-brief"><div className="ai-brief__title"><FileText size={15} /> AI TAILORED RESUME <span>MATCH: {resumeTailor.data.matchScore}</span></div><div><small>TAILORED RESUME</small><pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "0.85rem", lineHeight: 1.6, margin: 0 }}>{resumeTailor.data.tailoredResume}</pre></div><div className="ai-brief__evidence"><small>KEY CHANGES MADE</small><ul>{resumeTailor.data.keyChanges.map((item: string) => <li key={item}>{item}</li>)}</ul></div><div className="ai-brief__service"><Sparkles size={16} /><span><small>AI SUGGESTION</small><strong>{resumeTailor.data.suggestion}</strong></span></div><button className="brief-button" style={{ marginTop: "0.5rem" }} onClick={async () => { try { await navigator.clipboard.writeText(resumeTailor.data!.tailoredResume); toast.success("Tailored resume copied to clipboard."); } catch { toast.message("Copy unavailable; select the text manually."); } }}><Copy size={14} /> Copy tailored resume</button></div>}
+
+                </> : <div className="job-detail-empty"><UsersRound size={29} /><strong>Select a community job to see details.</strong><span>Browse the jobs posted by employers on Finderviews, or post your own.</span></div>}
+              </aside>
+            </div>
+          </div>}
         </section>
 
         <section className="community-section" id="community-board"><div className="community-head"><div><span className="section-number">03B / OPPORTUNITY BOARD</span><h2>Local signals are<br /><em>stronger together.</em></h2></div><p>Employers and community members can publish a public opportunity. Urgent posts appear in the live board for 48 hours and the board refreshes every 15 seconds.</p></div><div className="community-grid"><div className="community-compose"><span>SHARE A PUBLIC OPPORTUNITY</span><label className="urgent-toggle"><input type="checkbox" checked={urgentPost} onChange={(event) => setUrgentPost(event.target.checked)} /> I need someone urgently</label><input className="opportunity-title" value={opportunityTitle} onChange={(event) => setOpportunityTitle(event.target.value)} placeholder="Opportunity title, e.g. Weekend barista needed now" maxLength={160} /><textarea value={communityText} onChange={(event) => setCommunityText(event.target.value)} placeholder="Example: A café in Austin is hiring weekend staff — public listing linked in the job details." maxLength={500} /><div><small>{communityText.length}/500 · {[jobCity, jobState, jobCountry].filter(Boolean).join(", ")}</small><button className="button-dark" onClick={publishCommunityPost}>Publish signal <ArrowUpRight size={16} /></button></div></div><div className="community-feed">{communityPosts.length === 0 ? <div className="community-empty"><UsersRound size={25} /><strong>No local signals yet.</strong><span>Be the first to share a useful, public opportunity.</span></div> : communityPosts.map((post) => <article className="community-post" key={post.id}><div><span className="signal-dot" /><small>{post.urgent ? "URGENT · " : ""}{post.role} · {[post.city, post.state, post.country].filter(Boolean).join(", ")}</small></div><strong className="community-post__title">{post.title || post.role}</strong><p>{post.text || post.description}</p><time>{new Date(post.createdAt).toLocaleDateString()}</time></article>)}</div></div></section>
