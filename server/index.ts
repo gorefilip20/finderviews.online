@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import { createJob, getJobById, getTrackingForJob, listJobs, listTrackedJobs, seedJobs, TRACKING_STATUSES, upsertTracking, JOB_TYPES } from "./jobs";
+import { syncAllFeeds } from "./services/autoSync";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,6 +105,17 @@ async function startServer() {
     }
   });
 
+  app.post("/api/admin/sync-jobs", async (req, res) => {
+    const configuredToken = process.env.SYNC_ADMIN_TOKEN?.trim();
+    if (configuredToken && req.header("x-admin-token") !== configuredToken) return res.status(401).json({ error: "A valid sync admin token is required." });
+    try {
+      return res.json(await syncAllFeeds());
+    } catch (error) {
+      console.error("[AutoSync] Manual sync failed", error);
+      return res.status(502).json({ error: "Unable to sync job feeds right now." });
+    }
+  });
+
   // Serve static files from dist/public in production
   const staticPath =
     process.env.NODE_ENV === "production"
@@ -120,6 +132,12 @@ async function startServer() {
   const port = process.env.PORT || 3000;
 
   await seedJobs().catch((error) => console.warn("[Jobs] Seed skipped:", error));
+
+  void syncAllFeeds().then((result) => console.log(`[AutoSync] Startup sync imported ${result.imported} jobs.`)).catch((error) => console.warn("[AutoSync] Startup sync skipped:", error));
+  const syncInterval = setInterval(() => {
+    void syncAllFeeds().then((result) => console.log(`[AutoSync] Scheduled sync imported ${result.imported} jobs.`)).catch((error) => console.warn("[AutoSync] Scheduled sync failed:", error));
+  }, 6 * 60 * 60 * 1000);
+  syncInterval.unref();
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);

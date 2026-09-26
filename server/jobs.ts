@@ -64,6 +64,18 @@ export async function createJob(input: InsertJob) {
   return getJobById(Number(result[0].insertId));
 }
 
+export async function jobExistsByTitleCompany(title: string, companyName: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  const rows = await db.select({ id: jobs.id }).from(jobs).where(and(eq(jobs.title, title), eq(jobs.companyName, companyName))).limit(1);
+  return Boolean(rows[0]);
+}
+
+export async function createJobIfNew(input: InsertJob) {
+  if (await jobExistsByTitleCompany(input.title, input.companyName)) return { job: undefined, duplicate: true };
+  return { job: await createJob(input), duplicate: false };
+}
+
 export async function seedJobs() {
   const db = await getDb();
   if (!db) return;

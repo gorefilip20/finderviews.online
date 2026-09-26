@@ -157,11 +157,15 @@ button:disabled { cursor: not-allowed; opacity: .72; }
 .keyword--missing { background: #fff; color: #8b6c43; border: 1px dashed #c9a66d; }
 .tracker-page { max-width: 1450px; margin: 0 auto; padding: 4rem 3.25rem 6rem; }
 .tracker-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; margin-bottom: 3rem; }
+.tracker-head__actions { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
 .tracker-head h1 { margin: 0; font: 650 clamp(3.2rem, 6vw, 6.3rem)/.88 "Space Grotesk", sans-serif; letter-spacing: -.08em; }
 .tracker-head h1 em { color: #718166; }
 .tracker-head > div > p:last-child { max-width: 520px; margin: 1.2rem 0 0; color: #5e695f; font-size: .86rem; line-height: 1.7; }
 .tracker-refresh { display: inline-flex; align-items: center; gap: .4rem; padding: .7rem .85rem; border: 1px solid #1d241f; border-radius: .5rem; background: #fff; color: #1d241f; font-size: .68rem; font-weight: 850; }
 .tracker-refresh:hover { background: #c8ff3d; box-shadow: 3px 3px 0 #1d241f; }
+.tracker-sync { display: inline-flex; align-items: center; gap: .4rem; padding: .7rem .85rem; border: 1px solid #1d241f; border-radius: .5rem; background: #1d241f; color: #c8ff3d; font-size: .68rem; font-weight: 850; text-transform: uppercase; }
+.tracker-sync:hover:not(:disabled) { background: #43533d; box-shadow: 3px 3px 0 #c8ff3d; }
+.tracker-sync:disabled { cursor: wait; opacity: .7; }
 .tracker-board { display: grid; grid-template-columns: repeat(5, minmax(190px, 1fr)); gap: .65rem; overflow-x: auto; padding-bottom: .75rem; }
 .tracker-column { min-height: 430px; padding: .75rem; border: 1px solid #d3d7cf; border-radius: .7rem; background: #eef1e9; }
 .tracker-column:nth-child(2) { background: #f5f1e5; }.tracker-column:nth-child(3) { background: #e7f0ec; }.tracker-column:nth-child(4) { background: #e7f0d7; }.tracker-column:nth-child(5) { background: #f2e9e5; }
@@ -756,6 +760,8 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
   .ats-card__head { align-items: flex-start; }
   .tracker-page { padding: 2.8rem 1.15rem 4rem; }
   .tracker-head { align-items: flex-start; flex-direction: column; margin-bottom: 2rem; }
+  .tracker-head__actions { width: 100%; align-items: stretch; }
+  .tracker-head__actions button { flex: 1; justify-content: center; }
   .tracker-refresh { align-self: flex-start; }
   .tracker-board { grid-template-columns: repeat(5, minmax(220px, 1fr)); margin-right: -1.15rem; }
   .jobs-nav { padding: .95rem 1.15rem; }
