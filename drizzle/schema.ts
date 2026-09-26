@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -12,5 +12,22 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const jobs = mysqlTable("jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 240 }).notNull(),
+  companyName: varchar("companyName", { length: 240 }).notNull(),
+  location: varchar("location", { length: 240 }).notNull(),
+  jobType: mysqlEnum("jobType", ["Remote", "Full-time", "Part-time", "Contract", "Hybrid"]).notNull(),
+  category: varchar("category", { length: 120 }).notNull(),
+  salaryRange: varchar("salaryRange", { length: 120 }),
+  description: text("description").notNull(),
+  requirements: text("requirements").notNull(),
+  applicationContact: varchar("applicationContact", { length: 320 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type Job = typeof jobs.$inferSelect;
+export type InsertJob = typeof jobs.$inferInsert;

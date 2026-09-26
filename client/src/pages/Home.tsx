@@ -756,6 +756,7 @@ export default function Home() {
           <FinderLogo />
         </button>
         <nav className={cn("finder-nav__links", mobileNavOpen && "finder-nav__links--open")} aria-label="Main navigation">
+          <a className="text-link" href="/jobs">Browse jobs</a>
           <button onClick={() => scrollTo("how-it-works")}>How it works</button>
           <button onClick={() => scrollTo("finder-workspace")}>Explore leads</button>
           <button onClick={() => scrollTo("hiring-workspace")}>Hiring signals</button>

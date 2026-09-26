@@ -31,7 +31,7 @@ var decodeOAuthState = (state) => {
 import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
-import { eq } from "drizzle-orm";
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 
 // drizzle/schema.ts
@@ -51,6 +51,20 @@ var users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
+});
+var jobs = mysqlTable("jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 240 }).notNull(),
+  companyName: varchar("companyName", { length: 240 }).notNull(),
+  location: varchar("location", { length: 240 }).notNull(),
+  jobType: mysqlEnum("jobType", ["Remote", "Full-time", "Part-time", "Contract", "Hybrid"]).notNull(),
+  category: varchar("category", { length: 120 }).notNull(),
+  salaryRange: varchar("salaryRange", { length: 120 }),
+  description: text("description").notNull(),
+  requirements: text("requirements").notNull(),
+  applicationContact: varchar("applicationContact", { length: 320 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  isActive: int("isActive").default(1).notNull()
 });
 
 // server/_core/env.ts
@@ -1161,6 +1175,24 @@ function registerOpportunityRoutes(app) {
 
 }
 // server/_core/index.ts
+async function seedDatabaseJobs() {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select({ count: sql`count(*)` }).from(jobs);
+  if (Number(existing[0]?.count || 0) > 0) return;
+  await db.insert(jobs).values([
+    { title: "Senior Frontend Engineer", companyName: "Northstar Labs", location: "Remote — Europe", jobType: "Remote", category: "Engineering", salaryRange: "$95k – $125k", description: "Build thoughtful, accessible product experiences for a distributed climate-tech company.", requirements: "5+ years with React and TypeScript\nStrong CSS and accessibility fundamentals", applicationContact: "careers@northstarlabs.example" },
+    { title: "Product Designer", companyName: "Cedar & Co.", location: "New York, NY", jobType: "Hybrid", category: "Design", salaryRange: "$105k – $135k", description: "Own end-to-end product design for a new generation of collaborative finance tools.", requirements: "4+ years designing SaaS products\nA strong portfolio showing systems thinking", applicationContact: "https://cedar.example/careers/product-designer" },
+    { title: "Growth Marketing Manager", companyName: "Orbit Commerce", location: "London, United Kingdom", jobType: "Full-time", category: "Marketing", salaryRange: "£70k – £90k", description: "Lead a small, ambitious growth team as we expand our commerce platform across Europe.", requirements: "6+ years in B2B or SaaS growth marketing\nExperience owning a multi-channel growth budget", applicationContact: "talent@orbitcommerce.example" },
+    { title: "Product Manager, AI Platform", companyName: "Signal Foundry", location: "Remote — Worldwide", jobType: "Remote", category: "Product", salaryRange: "$120k – $155k", description: "Shape the roadmap for the platform that helps teams safely bring AI into everyday workflows.", requirements: "3+ years managing technical B2B products\nExperience shipping API or platform capabilities", applicationContact: "https://signalfoundry.example/jobs/ai-platform-pm" },
+    { title: "Data Analyst", companyName: "Morrow Health", location: "Austin, TX", jobType: "Part-time", category: "Engineering", salaryRange: "$45 – $60 / hour", description: "Help our care operations team make better decisions with reliable reporting and clear analysis.", requirements: "2+ years using SQL for business analysis\nComfort with dashboards and data storytelling", applicationContact: "jobs@morrowhealth.example" }
+  ]);
+}
+function registerJobRoutes(app) {
+  app.get("/api/jobs", async (req, res) => { const db = await getDb(); if (!db) return res.status(503).json({ error: "Database is not configured." }); const page = Math.max(Number(req.query.page) || 1, 1), pageSize = Math.min(Math.max(Number(req.query.pageSize) || 10, 1), 50), conditions = [eq(jobs.isActive, 1)]; const search = typeof req.query.search === "string" ? req.query.search.trim() : ""; if (search) conditions.push(or(like(jobs.title, `%${search}%`), like(jobs.companyName, `%${search}%`))); if (typeof req.query.location === "string" && req.query.location.trim()) conditions.push(like(jobs.location, `%${req.query.location.trim()}%`)); if (["Remote", "Full-time", "Part-time", "Contract", "Hybrid"].includes(req.query.jobType)) conditions.push(eq(jobs.jobType, req.query.jobType)); if (typeof req.query.category === "string" && req.query.category.trim()) conditions.push(eq(jobs.category, req.query.category.trim())); const where = and(...conditions), rows = await db.select().from(jobs).where(where).orderBy(desc(jobs.createdAt)).limit(pageSize).offset((page - 1) * pageSize), countRows = await db.select({ count: sql`count(*)` }).from(jobs).where(where), total = Number(countRows[0]?.count || 0); return res.json({ jobs: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }); });
+  app.get("/api/jobs/:id", async (req, res) => { const db = await getDb(); const id = Number(req.params.id); if (!db) return res.status(503).json({ error: "Database is not configured." }); if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid job id." }); const rows = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.isActive, 1))).limit(1); return rows[0] ? res.json({ job: rows[0] }) : res.status(404).json({ error: "Job not found." }); });
+  app.post("/api/jobs", async (req, res) => { const db = await getDb(); if (!db) return res.status(503).json({ error: "Database is not configured." }); const b = req.body || {}; const validType = ["Remote", "Full-time", "Part-time", "Contract", "Hybrid"].includes(b.jobType); const validContact = typeof b.applicationContact === "string" && /^(?:https?:\/\/|mailto:|[^\s@]+@[^\s@]+\.[^\s@]+$)/i.test(b.applicationContact.trim()); if (!b.title || !b.companyName || !b.location || !validType || !b.category || String(b.description || "").trim().length < 20 || String(b.requirements || "").trim().length < 10 || !validContact) return res.status(400).json({ error: "Title, company, location, type, category, description, requirements, and a valid application contact are required." }); const result = await db.insert(jobs).values({ title: b.title.trim().slice(0, 240), companyName: b.companyName.trim().slice(0, 240), location: b.location.trim().slice(0, 240), jobType: b.jobType, category: b.category.trim().slice(0, 120), salaryRange: b.salaryRange ? String(b.salaryRange).trim().slice(0, 120) : null, description: b.description.trim().slice(0, 12000), requirements: b.requirements.trim().slice(0, 8000), applicationContact: b.applicationContact.trim().slice(0, 320) }); const rows = await db.select().from(jobs).where(eq(jobs.id, Number(result[0].insertId))).limit(1); return res.status(201).json({ job: rows[0] }); });
+}
 function isPortAvailable(port) {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -1186,6 +1218,8 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerOpportunityRoutes(app);
+  registerJobRoutes(app);
+  await seedDatabaseJobs().catch((error) => console.warn("[Jobs] Seed skipped:", error));
   app.use(
     "/api/trpc",
     createExpressMiddleware({
