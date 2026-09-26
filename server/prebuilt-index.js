@@ -31,7 +31,7 @@ var decodeOAuthState = (state) => {
 import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, like, not, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 
 // drizzle/schema.ts
@@ -65,6 +65,14 @@ var jobs = mysqlTable("jobs", {
   applicationContact: varchar("applicationContact", { length: 320 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   isActive: int("isActive").default(1).notNull()
+});
+var applicationTracking = mysqlTable("application_tracking", {
+  id: int("id").autoincrement().primaryKey(),
+  jobId: int("jobId").notNull(),
+  status: mysqlEnum("status", ["Wishlist", "Applied", "Interviewing", "Offered", "Rejected"]).default("Wishlist").notNull(),
+  notes: text("notes"),
+  appliedDate: timestamp("appliedDate"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
 });
 
 // server/_core/env.ts
@@ -1189,9 +1197,15 @@ async function seedDatabaseJobs() {
   ]);
 }
 function registerJobRoutes(app) {
-  app.get("/api/jobs", async (req, res) => { const db = await getDb(); if (!db) return res.status(503).json({ error: "Database is not configured." }); const page = Math.max(Number(req.query.page) || 1, 1), pageSize = Math.min(Math.max(Number(req.query.pageSize) || 10, 1), 50), conditions = [eq(jobs.isActive, 1)]; const search = typeof req.query.search === "string" ? req.query.search.trim() : ""; if (search) conditions.push(or(like(jobs.title, `%${search}%`), like(jobs.companyName, `%${search}%`))); if (typeof req.query.location === "string" && req.query.location.trim()) conditions.push(like(jobs.location, `%${req.query.location.trim()}%`)); if (["Remote", "Full-time", "Part-time", "Contract", "Hybrid"].includes(req.query.jobType)) conditions.push(eq(jobs.jobType, req.query.jobType)); if (typeof req.query.category === "string" && req.query.category.trim()) conditions.push(eq(jobs.category, req.query.category.trim())); const where = and(...conditions), rows = await db.select().from(jobs).where(where).orderBy(desc(jobs.createdAt)).limit(pageSize).offset((page - 1) * pageSize), countRows = await db.select({ count: sql`count(*)` }).from(jobs).where(where), total = Number(countRows[0]?.count || 0); return res.json({ jobs: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }); });
+  app.get("/api/jobs", async (req, res) => { const db = await getDb(); if (!db) return res.status(503).json({ error: "Database is not configured." }); const page = Math.max(Number(req.query.page) || 1, 1), pageSize = Math.min(Math.max(Number(req.query.pageSize) || 10, 1), 50), conditions = [eq(jobs.isActive, 1)]; const search = typeof req.query.search === "string" ? req.query.search.trim() : ""; if (search) conditions.push(or(like(jobs.title, `%${search}%`), like(jobs.companyName, `%${search}%`), like(jobs.description, `%${search}%`), like(jobs.requirements, `%${search}%`))); if (typeof req.query.location === "string" && req.query.location.trim()) conditions.push(like(jobs.location, `%${req.query.location.trim()}%`)); if (["Remote", "Full-time", "Part-time", "Contract", "Hybrid"].includes(req.query.jobType)) conditions.push(eq(jobs.jobType, req.query.jobType)); if (typeof req.query.category === "string" && req.query.category.trim()) conditions.push(eq(jobs.category, req.query.category.trim())); if (req.query.remoteOnly === "true") conditions.push(eq(jobs.jobType, "Remote")); if (req.query.freshOnly === "true") conditions.push(gt(jobs.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000))); if (req.query.directApply === "true") conditions.push(not(or(like(jobs.applicationContact, "http://%"), like(jobs.applicationContact, "https://%")))); const where = and(...conditions), rows = await db.select().from(jobs).where(where).orderBy(desc(jobs.createdAt)).limit(pageSize).offset((page - 1) * pageSize), countRows = await db.select({ count: sql`count(*)` }).from(jobs).where(where), total = Number(countRows[0]?.count || 0); return res.json({ jobs: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }); });
   app.get("/api/jobs/:id", async (req, res) => { const db = await getDb(); const id = Number(req.params.id); if (!db) return res.status(503).json({ error: "Database is not configured." }); if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid job id." }); const rows = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.isActive, 1))).limit(1); return rows[0] ? res.json({ job: rows[0] }) : res.status(404).json({ error: "Job not found." }); });
   app.post("/api/jobs", async (req, res) => { const db = await getDb(); if (!db) return res.status(503).json({ error: "Database is not configured." }); const b = req.body || {}; const validType = ["Remote", "Full-time", "Part-time", "Contract", "Hybrid"].includes(b.jobType); const validContact = typeof b.applicationContact === "string" && /^(?:https?:\/\/|mailto:|[^\s@]+@[^\s@]+\.[^\s@]+$)/i.test(b.applicationContact.trim()); if (!b.title || !b.companyName || !b.location || !validType || !b.category || String(b.description || "").trim().length < 20 || String(b.requirements || "").trim().length < 10 || !validContact) return res.status(400).json({ error: "Title, company, location, type, category, description, requirements, and a valid application contact are required." }); const result = await db.insert(jobs).values({ title: b.title.trim().slice(0, 240), companyName: b.companyName.trim().slice(0, 240), location: b.location.trim().slice(0, 240), jobType: b.jobType, category: b.category.trim().slice(0, 120), salaryRange: b.salaryRange ? String(b.salaryRange).trim().slice(0, 120) : null, description: b.description.trim().slice(0, 12000), requirements: b.requirements.trim().slice(0, 8000), applicationContact: b.applicationContact.trim().slice(0, 320) }); const rows = await db.select().from(jobs).where(eq(jobs.id, Number(result[0].insertId))).limit(1); return res.status(201).json({ job: rows[0] }); });
+}
+async function getBundledTracking(jobId) { const db = await getDb(); if (!db) return undefined; const rows = await db.select().from(applicationTracking).where(eq(applicationTracking.jobId, jobId)).limit(1); return rows[0]; }
+async function registerBundledTrackerRoutes(app) {
+  app.get("/api/jobs/:id/tracking", async (req, res) => { const id = Number(req.params.id); const tracking = Number.isInteger(id) && id > 0 ? await getBundledTracking(id) : undefined; return res.json({ tracking: tracking || null }); });
+  app.put("/api/jobs/:id/tracking", async (req, res) => { const id = Number(req.params.id), body = req.body || {}, status = ["Wishlist", "Applied", "Interviewing", "Offered", "Rejected"].includes(body.status) ? body.status : ""; const db = await getDb(); if (!db || !Number.isInteger(id) || id < 1 || !status) return res.status(400).json({ error: "Invalid tracking request." }); const existing = await getBundledTracking(id); const appliedDate = status === "Wishlist" ? null : existing?.appliedDate || new Date(); if (existing) await db.update(applicationTracking).set({ status, notes: typeof body.notes === "string" ? body.notes.trim().slice(0, 4000) || null : null, appliedDate, updatedAt: new Date() }).where(eq(applicationTracking.id, existing.id)); else await db.insert(applicationTracking).values({ jobId: id, status, notes: typeof body.notes === "string" ? body.notes.trim().slice(0, 4000) || null : null, appliedDate }); return res.json({ tracking: await getBundledTracking(id) }); });
+  app.get("/api/tracker", async (_req, res) => { const db = await getDb(); if (!db) return res.status(503).json({ error: "Database is not configured." }); const rows = await db.select({ tracking: applicationTracking, job: jobs }).from(applicationTracking).innerJoin(jobs, eq(applicationTracking.jobId, jobs.id)).where(eq(jobs.isActive, 1)).orderBy(desc(applicationTracking.updatedAt)); return res.json({ applications: rows.map(({ tracking, job }) => ({ ...tracking, job })) }); });
 }
 function isPortAvailable(port) {
   return new Promise((resolve) => {
@@ -1219,6 +1233,7 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerOpportunityRoutes(app);
   registerJobRoutes(app);
+  await registerBundledTrackerRoutes(app);
   await seedDatabaseJobs().catch((error) => console.warn("[Jobs] Seed skipped:", error));
   app.use(
     "/api/trpc",

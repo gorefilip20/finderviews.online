@@ -1,0 +1,29 @@
+import { ArrowRight, BriefcaseBusiness, Check, ClipboardList, ExternalLink, MapPin, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "wouter";
+import { toast } from "sonner";
+import { JobsHeader } from "./Jobs";
+
+const STATUSES = ["Wishlist", "Applied", "Interviewing", "Offered", "Rejected"] as const;
+type Status = (typeof STATUSES)[number];
+type Job = { id: number; title: string; companyName: string; location: string; jobType: string; category: string; salaryRange?: string | null };
+type Application = { id: number; jobId: number; status: Status; notes?: string | null; appliedDate?: string | null; updatedAt: string; job: Job };
+
+async function loadTracker() {
+  const response = await fetch("/api/tracker");
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Could not load tracker.");
+  return payload.applications as Application[];
+}
+
+export default function TrackerPage() {
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updating, setUpdating] = useState<number | null>(null);
+  const refresh = () => { setLoading(true); loadTracker().then(setApplications).catch((err) => setError(err.message)).finally(() => setLoading(false)); };
+  useEffect(refresh, []);
+  const grouped = useMemo(() => Object.fromEntries(STATUSES.map((status) => [status, applications.filter((application) => application.status === status)])) as Record<Status, Application[]>, [applications]);
+  const updateStatus = async (application: Application, status: Status) => { setUpdating(application.jobId); try { const response = await fetch(`/api/jobs/${application.jobId}/tracking`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, notes: application.notes || "" }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Could not update status."); setApplications((current) => current.map((item) => item.jobId === application.jobId ? { ...item, ...payload.tracking } : item)); toast.success(`${application.job.title} moved to ${status}.`); } catch (err) { toast.error(err instanceof Error ? err.message : "Could not update status."); } finally { setUpdating(null); } };
+  return <div className="jobs-shell"><JobsHeader /><main className="tracker-page"><div className="tracker-head"><div><p className="jobs-eyebrow"><span className="signal-dot" /> APPLICATION CONTROL ROOM</p><h1>Keep every<br /><em>next step visible.</em></h1><p>Save a role from its detail page and move it through your pipeline without losing momentum.</p></div><button className="tracker-refresh" onClick={refresh}><RefreshCw size={15} /> Refresh</button></div>{error && <div className="jobs-state jobs-state--error"><strong>{error}</strong><span>Make sure the tracking migration has been applied.</span></div>}{loading && !error && <div className="tracker-loading"><RefreshCw className="spin" size={22} /> Loading your pipeline…</div>}{!loading && !error && applications.length === 0 && <div className="jobs-state tracker-empty"><ClipboardList size={30} /><strong>Your pipeline is waiting.</strong><span>Open a job and choose Wishlist or Applied to start tracking it.</span><Link href="/jobs" className="jobs-inline-link">Browse open roles <ArrowRight size={15} /></Link></div>}{!loading && !error && applications.length > 0 && <div className="tracker-board">{STATUSES.map((status) => <section className="tracker-column" key={status}><div className="tracker-column__head"><span>{status}</span><strong>{grouped[status].length.toString().padStart(2, "0")}</strong></div><div className="tracker-column__cards">{grouped[status].map((application) => <article className="tracker-card" key={application.id}><Link href={`/jobs/${application.job.id}`}><span className="tracker-card__category">{application.job.category}</span><h2>{application.job.title}</h2><strong>{application.job.companyName}</strong><div><span><MapPin size={13} /> {application.job.location}</span><span><BriefcaseBusiness size={13} /> {application.job.jobType}</span></div></Link><label className="tracker-card__select"><span>MOVE TO</span><select value={application.status} disabled={updating === application.jobId} onChange={(event) => updateStatus(application, event.target.value as Status)}>{STATUSES.map((option) => <option key={option}>{option}</option>)}</select></label>{application.notes && <p>{application.notes}</p>}<Link href={`/jobs/${application.job.id}`} className="tracker-card__open">Open role <ExternalLink size={13} /></Link></article>)}{grouped[status].length === 0 && <div className="tracker-column__empty">No roles here yet</div>}</div></section>)}</div>}</main></div>;
+}

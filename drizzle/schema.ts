@@ -1,4 +1,4 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -27,7 +27,20 @@ export const jobs = mysqlTable("jobs", {
   isActive: boolean("isActive").default(true).notNull(),
 });
 
+export const applicationTracking = mysqlTable("application_tracking", {
+  id: int("id").autoincrement().primaryKey(),
+  jobId: int("jobId").notNull(),
+  status: mysqlEnum("status", ["Wishlist", "Applied", "Interviewing", "Offered", "Rejected"]).default("Wishlist").notNull(),
+  notes: text("notes"),
+  appliedDate: timestamp("appliedDate"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  jobIdUnique: uniqueIndex("application_tracking_job_id_unique").on(table.jobId),
+}));
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Job = typeof jobs.$inferSelect;
 export type InsertJob = typeof jobs.$inferInsert;
+export type ApplicationTracking = typeof applicationTracking.$inferSelect;
+export type InsertApplicationTracking = typeof applicationTracking.$inferInsert;

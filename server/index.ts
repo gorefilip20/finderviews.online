@@ -3,7 +3,7 @@ import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
-import { createJob, getJobById, listJobs, seedJobs, JOB_TYPES } from "./jobs";
+import { createJob, getJobById, getTrackingForJob, listJobs, listTrackedJobs, seedJobs, TRACKING_STATUSES, upsertTracking, JOB_TYPES } from "./jobs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +20,9 @@ async function startServer() {
       location: z.string().trim().max(160).optional(),
       jobType: z.enum(JOB_TYPES).optional(),
       category: z.string().trim().max(120).optional(),
+      remoteOnly: z.string().optional().transform((value) => value === "true"),
+      freshOnly: z.string().optional().transform((value) => value === "true"),
+      directApply: z.string().optional().transform((value) => value === "true"),
       page: z.coerce.number().int().min(1).default(1),
       pageSize: z.coerce.number().int().min(1).max(50).default(10),
     }).safeParse(req.query);
@@ -64,6 +67,40 @@ async function startServer() {
     } catch (error) {
       console.error("[Jobs] Failed to create job", error);
       return res.status(500).json({ error: "Unable to publish this job right now." });
+    }
+  });
+
+  app.get("/api/jobs/:id/tracking", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid job id." });
+    try {
+      return res.json({ tracking: (await getTrackingForJob(id)) || null });
+    } catch (error) {
+      console.error("[Tracker] Failed to load tracking", error);
+      return res.status(500).json({ error: "Unable to load application status." });
+    }
+  });
+
+  app.put("/api/jobs/:id/tracking", async (req, res) => {
+    const id = Number(req.params.id);
+    const payload = z.object({ status: z.enum(TRACKING_STATUSES), notes: z.string().trim().max(4000).optional() }).safeParse(req.body);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid job id." });
+    if (!payload.success) return res.status(400).json({ error: "Invalid application status or notes." });
+    try {
+      if (!(await getJobById(id))) return res.status(404).json({ error: "Job not found." });
+      return res.json({ tracking: await upsertTracking(id, payload.data.status, payload.data.notes) });
+    } catch (error) {
+      console.error("[Tracker] Failed to update tracking", error);
+      return res.status(500).json({ error: "Unable to update application status." });
+    }
+  });
+
+  app.get("/api/tracker", async (_req, res) => {
+    try {
+      return res.json({ applications: await listTrackedJobs() });
+    } catch (error) {
+      console.error("[Tracker] Failed to list applications", error);
+      return res.status(500).json({ error: "Unable to load your tracker." });
     }
   });
 

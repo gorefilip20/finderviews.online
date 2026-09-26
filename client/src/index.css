@@ -126,6 +126,62 @@ button:disabled { cursor: not-allowed; opacity: .72; }
 .jobs-state span { font-size: .75rem; }
 .jobs-state--error { border-color: #d59b91; color: #9b4c40; }
 .jobs-state--page { min-height: 60vh; margin: 2rem 3.25rem; }
+.quick-filter-bar, .tech-tag-row { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; margin-top: .85rem; }
+.quick-filter-bar > span, .tech-tag-row > span { margin-right: .3rem; color: #7a857a; font: 600 .56rem "DM Mono", monospace; letter-spacing: .08em; }
+.quick-filter, .tech-tag { display: inline-flex; align-items: center; gap: .35rem; padding: .48rem .7rem; border: 1px solid #cbd1c8; border-radius: 999px; background: #fff; color: #59665b; font-size: .65rem; font-weight: 800; transition: .16s ease-out; }
+.quick-filter:hover, .quick-filter--active, .tech-tag:hover, .tech-tag--active { border-color: #1d241f; background: #c8ff3d; color: #1d241f; transform: translateY(-1px); }
+.tech-tag-row { margin-top: .65rem; }
+.tech-tag { padding: .38rem .62rem; background: #eef1e9; border-color: #dfe3d9; font-size: .61rem; }
+.freshness-badge { display: inline-flex; align-items: center; gap: .22rem; color: #698d25; font: 700 .54rem "DM Mono", monospace; letter-spacing: .02em; text-transform: uppercase; }
+.job-card__signals { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: auto; padding-top: 1.1rem; }
+.job-card__signals > span:first-child:not(.job-card__link) { display: inline-flex; align-items: center; gap: .25rem; color: #668c22; font: 700 .56rem "DM Mono", monospace; }
+.detail-freshness { display: inline-flex; align-items: center; gap: .35rem; margin: 1.1rem 0 .8rem; color: #678d25; font: 700 .59rem "DM Mono", monospace; letter-spacing: .04em; }
+.detail-freshness span { color: #a4ada1; }
+.tracker-control { display: grid; gap: .48rem; margin: 1.25rem 0; padding: .95rem 0; border-top: 1px solid rgba(247,246,241,.16); border-bottom: 1px solid rgba(247,246,241,.16); }
+.tracker-control > span, .tracker-card__select > span, .ats-result > div > span { color: #9baa99; font: 600 .53rem "DM Mono", monospace; letter-spacing: .07em; }
+.tracker-control select { min-height: 38px; padding: 0 .55rem; border: 1px solid rgba(247,246,241,.28); border-radius: .45rem; background: rgba(247,246,241,.08); color: #f7f6f1; font-size: .7rem; font-weight: 800; }
+.tracker-control option { color: #1d241f; }
+.tracker-control a { display: inline-flex; align-items: center; gap: .35rem; color: #c8ff3d; font-size: .65rem; font-weight: 800; text-decoration: none; }
+.ats-card { margin-top: 3.8rem; padding: 1.2rem; border: 1px solid #cfd4cb; border-radius: .8rem; background: #eef2e9; }
+.ats-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.ats-card h2 { margin: .3rem 0 0; font: 650 1.55rem/1 "Space Grotesk", sans-serif; letter-spacing: -.06em; }
+.ats-card > p { max-width: 580px; margin: .8rem 0 1rem; color: #647064; font-size: .72rem; line-height: 1.6; }
+.ats-card textarea { width: 100%; min-height: 150px; border-color: #d1d8cd; background: #fff; font-size: .76rem; line-height: 1.6; }
+.ats-score { display: grid; place-items: center; min-width: 62px; height: 62px; border: 1px solid #1d241f; border-radius: 50%; background: #c8ff3d; color: #1d241f; font: 750 1rem "Space Grotesk", sans-serif; }
+.ats-button { width: auto; margin: .75rem 0 0; border: 0; cursor: pointer; }
+.ats-button:disabled { background: #aeb9a9; box-shadow: none; }
+.ats-result { display: grid; gap: 1rem; margin-top: 1.15rem; padding-top: 1rem; border-top: 1px solid #d0d8cc; }
+.keyword-list { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+.keyword { padding: .35rem .5rem; border-radius: .35rem; font: 700 .6rem "DM Mono", monospace; }
+.keyword--found { background: #dcefc0; color: #4e741b; }
+.keyword--missing { background: #fff; color: #8b6c43; border: 1px dashed #c9a66d; }
+.tracker-page { max-width: 1450px; margin: 0 auto; padding: 4rem 3.25rem 6rem; }
+.tracker-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; margin-bottom: 3rem; }
+.tracker-head h1 { margin: 0; font: 650 clamp(3.2rem, 6vw, 6.3rem)/.88 "Space Grotesk", sans-serif; letter-spacing: -.08em; }
+.tracker-head h1 em { color: #718166; }
+.tracker-head > div > p:last-child { max-width: 520px; margin: 1.2rem 0 0; color: #5e695f; font-size: .86rem; line-height: 1.7; }
+.tracker-refresh { display: inline-flex; align-items: center; gap: .4rem; padding: .7rem .85rem; border: 1px solid #1d241f; border-radius: .5rem; background: #fff; color: #1d241f; font-size: .68rem; font-weight: 850; }
+.tracker-refresh:hover { background: #c8ff3d; box-shadow: 3px 3px 0 #1d241f; }
+.tracker-board { display: grid; grid-template-columns: repeat(5, minmax(190px, 1fr)); gap: .65rem; overflow-x: auto; padding-bottom: .75rem; }
+.tracker-column { min-height: 430px; padding: .75rem; border: 1px solid #d3d7cf; border-radius: .7rem; background: #eef1e9; }
+.tracker-column:nth-child(2) { background: #f5f1e5; }.tracker-column:nth-child(3) { background: #e7f0ec; }.tracker-column:nth-child(4) { background: #e7f0d7; }.tracker-column:nth-child(5) { background: #f2e9e5; }
+.tracker-column__head { display: flex; align-items: center; justify-content: space-between; padding: .3rem .25rem .75rem; color: #4c594e; font: 700 .61rem "DM Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
+.tracker-column__head strong { color: #89938a; }
+.tracker-column__cards { display: grid; gap: .55rem; }
+.tracker-column__empty { padding: 2.2rem .6rem; color: #9aa49a; font-size: .68rem; text-align: center; }
+.tracker-card { padding: .8rem; border: 1px solid rgba(29,36,31,.13); border-radius: .55rem; background: #fff; box-shadow: 2px 3px 0 rgba(29,36,31,.05); }
+.tracker-card > a:first-child { display: block; color: inherit; text-decoration: none; }
+.tracker-card__category { color: #7a877b; font: 600 .52rem "DM Mono", monospace; letter-spacing: .07em; text-transform: uppercase; }
+.tracker-card h2 { margin: .55rem 0 .3rem; font: 650 .95rem/1.05 "Space Grotesk", sans-serif; letter-spacing: -.04em; }
+.tracker-card > a:first-child > strong { color: #566157; font-size: .64rem; }
+.tracker-card > a:first-child > div { display: grid; gap: .25rem; margin-top: .65rem; color: #7a857a; font-size: .58rem; }
+.tracker-card > a:first-child > div span { display: flex; align-items: center; gap: .25rem; }
+.tracker-card__select { display: grid; gap: .3rem; margin-top: .75rem; }
+.tracker-card__select select { min-height: 31px; padding: 0 .4rem; border: 1px solid #d5dbd2; border-radius: .35rem; background: #fafbf8; color: #1d241f; font-size: .61rem; font-weight: 800; }
+.tracker-card > p { margin: .7rem 0 0; padding-top: .55rem; border-top: 1px solid #e2e5df; color: #7a857a; font-size: .6rem; line-height: 1.45; }
+.tracker-card__open { display: inline-flex; align-items: center; gap: .3rem; margin-top: .7rem; color: #648c23; font-size: .6rem; font-weight: 850; text-decoration: none; }
+.tracker-loading { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 320px; color: #6c796d; font-size: .75rem; }
+.tracker-empty { min-height: 320px; }
 .jobs-pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 2rem; color: #6a756a; font: 600 .64rem "DM Mono", monospace; }
 .jobs-pagination button { display: inline-flex; align-items: center; gap: .35rem; padding: .6rem .75rem; border: 1px solid #cfd4cb; border-radius: .45rem; background: #fff; color: #1d241f; font-size: .68rem; font-weight: 800; }
 .jobs-pagination button:disabled { color: #9ba39a; background: transparent; }
@@ -694,6 +750,14 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
   .hiring-tab-bar { overflow-x:auto; }
   .community-job-form__fields { grid-template-columns:1fr; }
   .community-jobs-header { flex-direction:column; }
+  .quick-filter-bar, .tech-tag-row { align-items: flex-start; }
+  .quick-filter-bar > span, .tech-tag-row > span { width: 100%; }
+  .ats-card { margin-top: 2.8rem; }
+  .ats-card__head { align-items: flex-start; }
+  .tracker-page { padding: 2.8rem 1.15rem 4rem; }
+  .tracker-head { align-items: flex-start; flex-direction: column; margin-bottom: 2rem; }
+  .tracker-refresh { align-self: flex-start; }
+  .tracker-board { grid-template-columns: repeat(5, minmax(220px, 1fr)); margin-right: -1.15rem; }
   .jobs-nav { padding: .95rem 1.15rem; }
   .jobs-nav nav { gap: .65rem; }
   .jobs-nav nav a:first-child { display: none; }
