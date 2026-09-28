@@ -1,0 +1,13 @@
+import fs from "node:fs";
+const path = "server/prebuilt-index.js";
+let source = fs.readFileSync(path, "utf8");
+const fragment = fs.readFileSync("scripts/greenhouse-lever-runtime.fragment.txt", "utf8");
+if (!source.includes("function dedupeJobs")) throw new Error("Runtime insertion point missing");
+if (!source.includes("fetchGreenhouseRuntime")) source = source.replace("function dedupeJobs", fragment + "function dedupeJobs");
+source = source.replace("var jobs = []; var fallbackJobs = []; var globalJobs = []; var rssJobs = []; var adzunaJobs = []; var theirStackJobs = [];", "var jobs = []; var fallbackJobs = []; var globalJobs = []; var rssJobs = []; var adzunaJobs = []; var theirStackJobs = []; var greenhouseJobs = []; var leverJobs = [];");
+const needle = "jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs, rssJobs, adzunaJobs, theirStackJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 500));";
+const replacement = "try { greenhouseJobs = (await fetchGreenhouseRuntime()).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} try { leverJobs = (await fetchLeverRuntime()).filter((job) => !hasRole || matchesRequestedRole(job, role)); } catch {} jobs = dedupeJobs(jobs.concat(fallbackJobs, globalJobs, rssJobs, adzunaJobs, theirStackJobs, greenhouseJobs, leverJobs)).slice(0, Math.min(Math.max(input.limit || 100, 1), 500));";
+if (source.includes(needle)) source = source.replace(needle, replacement);
+fs.writeFileSync(path, source);
+if (!source.includes("fetchGreenhouseRuntime") || !source.includes("fetchLeverRuntime")) throw new Error("Greenhouse/Lever runtime patch failed");
+console.log("Added Greenhouse and Lever runtime sources");
