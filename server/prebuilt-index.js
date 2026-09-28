@@ -1,5 +1,7 @@
 // server/_core/index.ts
 import "dotenv/config";
+import { PDFParse } from "pdf-parse";
+import mammoth from "mammoth";
 import express2 from "express";
 import { createServer } from "http";
 import net from "net";
@@ -1166,6 +1168,11 @@ var PROFILE_STORE_PATH = path2.resolve(import.meta.dirname, "employer-profiles.j
 var OUTREACH_STORE_PATH = path2.resolve(import.meta.dirname, "outreach-leads.json");
 var OUTREACH_DRAFT_STORE_PATH = path2.resolve(import.meta.dirname, "outreach-drafts.json");
 var COMMUNITY_JOBS_STORE_PATH = path2.resolve(import.meta.dirname, "community-jobs.json");
+var RESUME_MAX_BYTES = 8 * 1024 * 1024;
+var RESUME_MAX_CHARS = 5e4;
+function detectResumeKindRuntime(fileName, mimeType = "") { const name = String(fileName).toLowerCase(); if (mimeType === "application/pdf" || name.endsWith(".pdf")) return "pdf"; if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || name.endsWith(".docx")) return "docx"; if (mimeType.startsWith("text/") || /\.(txt|md|rtf|html?)$/.test(name)) return "txt"; return null; }
+async function extractResumeTextRuntime(buffer, fileName, mimeType = "") { if (!buffer?.length) throw new Error("The uploaded resume is empty."); if (buffer.length > RESUME_MAX_BYTES) throw new Error("Resume files must be 8 MB or smaller."); const kind = detectResumeKindRuntime(fileName, mimeType); if (!kind) throw new Error("Upload a PDF, DOCX, TXT, Markdown, RTF, or HTML resume."); let text = ""; if (kind === "pdf") { const parser = new PDFParse({ data: buffer }); try { text = (await parser.getText()).text; } finally { await parser.destroy(); } } else if (kind === "docx") { text = (await mammoth.extractRawText({ buffer })).value; } else text = buffer.toString("utf8"); const cleaned = text.replace(/\u0000/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, RESUME_MAX_CHARS); if (cleaned.length < 20) throw new Error("We could not extract enough readable text from that resume. Try an OCR-enabled PDF or paste the text instead."); return { text: cleaned, kind, characters: cleaned.length }; }
+
 async function readJsonStore(filePath, fallback) { try { if (!fs2.existsSync(filePath)) return fallback; return JSON.parse(await fs2.promises.readFile(filePath, "utf8")); } catch { return fallback; } }
 async function writeJsonStore(filePath, value) { await fs2.promises.writeFile(filePath, JSON.stringify(value, null, 2), "utf8"); }
 async function authenticateApiUser(req, res) { try { return await sdk.authenticateRequest(req); } catch { res.status(401).json({ error: "Sign in required" }); return null; } }
@@ -1242,6 +1249,7 @@ async function findAvailablePort(startPort = 3e3) {
 async function startServer() {
   const app = express2();
   const server = createServer(app);
+  app.post("/api/resume/parse", express2.raw({ type: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown", "text/html", "application/rtf"], limit: RESUME_MAX_BYTES }), async (req, res) => { const fileName = String(req.header("x-resume-file-name") || "resume").slice(0, 180); const mimeType = String(req.header("content-type") || "").split(";")[0]; try { const parsed = await extractResumeTextRuntime(req.body, fileName, mimeType); res.json({ ...parsed, persisted: false, privacy: "The file is parsed in memory and is not stored by this endpoint." }); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : "Unable to parse this resume." }); } });
   app.use(express2.json({ limit: "50mb" }));
   app.use(express2.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);

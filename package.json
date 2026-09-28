@@ -21,8 +21,10 @@
     "drizzle-orm": "^0.44.5",
     "express": "^4.21.2",
     "jose": "6.1.0",
+    "mammoth": "^1.13.0",
     "mysql2": "^3.15.0",
     "nanoid": "^5.1.5",
+    "pdf-parse": "^2.4.5",
     "zod": "^4.1.12"
   },
   "packageManager": "pnpm@11.21.0",
@@ -70,6 +72,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
+    "esbuild": "^0.28.2",
     "input-otp": "^1.5.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.39.0",

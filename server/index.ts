@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 import { createJob, getJobById, getTrackingForJob, listJobs, listTrackedJobs, seedJobs, TRACKING_STATUSES, upsertTracking, JOB_TYPES } from "./jobs";
 import { syncAllFeeds } from "./services/autoSync";
+import { extractResumeText, RESUME_MAX_BYTES } from "./resumeParser";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,17 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  app.post("/api/resume/parse", express.raw({ type: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown", "text/html", "application/rtf"], limit: RESUME_MAX_BYTES }), async (req, res) => {
+    const fileName = String(req.header("x-resume-file-name") || "resume").slice(0, 180);
+    const mimeType = String(req.header("content-type") || "").split(";")[0];
+    try {
+      const parsed = await extractResumeText(req.body as Buffer, fileName, mimeType);
+      return res.json({ ...parsed, persisted: false, privacy: "The file is parsed in memory and is not stored by this endpoint." });
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : "Unable to parse this resume." });
+    }
+  });
 
   app.use(express.json({ limit: "100kb" }));
 

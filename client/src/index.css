@@ -626,7 +626,20 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .resume-status { font-family:"DM Mono",monospace; font-size:.55rem; color:#7e897e; padding:.25rem .5rem; border-radius:.35rem; background:rgba(29,36,31,.06); }
 .resume-status--saved { color:#4a7c4f; background:#e4f0e0; }
 .resume-upload-card__intro { margin:.6rem 0 .8rem; color:#657064; font-size:.78rem; line-height:1.6; }
+.resume-file-picker { display:inline-flex; align-items:center; gap:.5rem; position:relative; margin-bottom:.8rem; padding:.65rem .8rem; border:1px dashed rgba(93,139,60,.55); border-radius:.5rem; color:#3f6630; background:#eef5e9; font-family:"DM Mono",monospace; font-size:.58rem; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; }
+.resume-file-picker:hover { background:#e5f0de; }
+.resume-file-picker input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+.resume-file-picker input:disabled { cursor:wait; }
 .resume-textarea { width:100%; padding:.8rem; border:1px solid rgba(29,36,31,.18); border-radius:.5rem; background:#fff; color:#1d241f; font:inherit; font-size:.72rem; line-height:1.65; resize:vertical; min-height:180px; }
+.resume-health { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:.8rem; margin-top:.75rem; padding:.75rem; border:1px solid rgba(93,139,60,.2); border-radius:.55rem; background:#f0f6eb; }
+.resume-health > div:first-child { display:flex; flex-direction:column; gap:.18rem; }
+.resume-health strong { color:#35512e; font-size:.72rem; }
+.resume-health span { color:#758271; font-size:.58rem; }
+.resume-health__checks { display:flex; flex-wrap:wrap; gap:.35rem .55rem; }
+.resume-health__checks span { display:inline-flex; align-items:center; gap:.2rem; color:#9a6d5c; }
+.resume-health__checks .resume-health__check--ok { color:#4f7b3a; }
+@media (max-width: 760px) { .resume-health { grid-template-columns:1fr; } }
+
 .resume-upload-card__actions { display:flex; align-items:center; justify-content:space-between; margin-top:.6rem; }
 .resume-upload-card__actions small { color:#7e897e; font-family:"DM Mono",monospace; font-size:.55rem; }
 

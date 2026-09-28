@@ -9,6 +9,7 @@ import { startLogin } from "@/const";
 import { MARKET_COVERAGE, SUPPORTED_COUNTRY_COUNT, SUPPORTED_REGIONS, type MarketRegion } from "@/lib/marketCoverage";
 import { fetchOverpassData, fetchBusinessDirectoryFallback, type OverpassData } from "@/lib/businessProvider";
 import { mapBusinessRecords } from "@/lib/businessLeads";
+import { matchResumeToJob } from "@/lib/atsMatcher";
 import { enrichBusinessLeadContacts } from "@/lib/contactEnrichment";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
@@ -45,6 +46,7 @@ import {
   Target,
   UserRoundCheck,
   UsersRound,
+  Upload,
   X,
 } from "lucide-react";
 import L from "leaflet";
@@ -162,6 +164,7 @@ export default function Home() {
   const [pitchProfile, setPitchProfile] = useState({ name: "", offer: "Websites, landing pages, and digital growth systems", proof: "", portfolio: "", availability: "Available for a focused project" });
   const [resumeText, setResumeText] = useState("");
   const [resumeSaved, setResumeSaved] = useState(false);
+  const [resumeParsing, setResumeParsing] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingLeadEmail, setSendingLeadEmail] = useState(false);
   const [hiringTab, setHiringTab] = useState<"external" | "community">("external");
@@ -195,8 +198,19 @@ export default function Home() {
   const freshnessMaxHours = jobFreshness === "24h" ? 24 : jobFreshness === "7d" ? 168 : 720;
   const freshnessLabel = jobFreshness === "24h" ? "24 hours" : jobFreshness === "7d" ? "7 days" : "30 days";
   const allJobs = hiringSearch.data?.jobs || [];
-  const jobs = allJobs.filter((job) => job.ageHours <= freshnessMaxHours);
+  const jobs = [...allJobs.filter((job) => job.ageHours <= freshnessMaxHours)].sort((a, b) => { if (!resumeText.trim()) return 0; return matchResumeToJob(resumeText, `${b.title} ${b.industry.join(" ")} ${b.level}`, b.description).score - matchResumeToJob(resumeText, `${a.title} ${a.industry.join(" ")} ${a.level}`, a.description).score; });
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || jobs[0];
+  const resumeHealth = useMemo(() => {
+    const text = resumeText.toLowerCase();
+    const checks = [
+      { label: "Contact details", ok: /@|\+?\d[\d ()-]{7,}/.test(text) },
+      { label: "Experience", ok: /experience|employment|work history/.test(text) },
+      { label: "Skills", ok: /skills|technologies|competencies/.test(text) },
+      { label: "Education", ok: /education|degree|university|college/.test(text) },
+      { label: "Readable length", ok: resumeText.trim().length >= 400 },
+    ];
+    return { checks, score: Math.round((checks.filter((check) => check.ok).length / checks.length) * 100) };
+  }, [resumeText]);
 
   useEffect(() => {
     try {
@@ -659,6 +673,23 @@ export default function Home() {
     setSendingEmail(false);
   };
 
+  const parseResumeUpload = async (file: File) => {
+    setResumeParsing(true);
+    try {
+      const response = await fetch("/api/resume/parse", { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream", "X-Resume-File-Name": file.name }, body: file });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "The resume could not be parsed.");
+      setResumeText(payload.text || "");
+      setResumeSaved(false);
+      const inferredRole = hiringRoleSuggestions.find((role) => (payload.text || "").toLowerCase().includes(role.toLowerCase()));
+      if (inferredRole) setJobRole(inferredRole);
+      setJobSearchRequested(true);
+      toast.success(`${file.name} parsed. Finder is refreshing your best matches${inferredRole ? ` for ${inferredRole}` : ""}.`);
+      document.getElementById("hiring-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The resume could not be parsed.");
+    } finally { setResumeParsing(false); }
+  };
   const saveResume = () => {
     if (resumeText.trim().length < 20) { toast.error("Paste at least a short resume (20+ characters)."); return; }
     localStorage.setItem("finderviews-resume", resumeText);
@@ -1146,8 +1177,10 @@ export default function Home() {
           </div>
           <div className="resume-upload-card" id="resume-section">
             <div className="resume-upload-card__top"><span className="card-topline"><ClipboardPaste size={15} /> YOUR RESUME</span><span className={cn("resume-status", resumeSaved && "resume-status--saved")}>{resumeSaved ? "Saved locally" : "Not saved yet"}</span></div>
-            <p className="resume-upload-card__intro">Paste your resume below. Once saved, you can tailor it to any job with one click from the hiring section.</p>
+            <p className="resume-upload-card__intro">Upload a PDF or DOCX for instant text extraction, or paste your resume below. Finder parses files in memory, does not store them, and refreshes role matches immediately.</p>
+            <label className="resume-file-picker"><Upload size={16} /><span>{resumeParsing ? "Parsing resume…" : "Upload PDF, DOCX, or TXT"}</span><input type="file" accept=".pdf,.docx,.txt,.md,.rtf,.html,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parseResumeUpload(file); event.currentTarget.value = ""; }} disabled={resumeParsing} /></label>
             <textarea className="resume-textarea" value={resumeText} onChange={(event) => { setResumeText(event.target.value); setResumeSaved(false); }} placeholder="Paste your resume here (plain text). Include your name, experience, skills, education, and anything relevant to the roles you want." maxLength={15000} rows={12} />
+            {resumeText.trim() && <div className="resume-health"><div><strong>Resume readiness {resumeHealth.score}%</strong><span>Quick preflight before you apply</span></div><div className="resume-health__checks">{resumeHealth.checks.map((check) => <span key={check.label} className={check.ok ? "resume-health__check--ok" : ""}><Check size={12} /> {check.label}</span>)}</div><button className="text-link" onClick={() => { setJobSearchRequested(true); document.getElementById("hiring-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Find my best matches <ArrowDownRight size={14} /></button></div>}
             <div className="resume-upload-card__actions">
               <small>{resumeText.length}/15000 characters</small>
               <button className="button-dark" onClick={saveResume}>{resumeSaved ? <><Check size={16} /> Resume saved</> : <><FileText size={16} /> Save resume</>}</button>
