@@ -16,7 +16,8 @@ function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={JobsPage} />
+      <Route path="/finder" component={Home} />
       <Route path="/jobs/new" component={NewJobPage} />
       <Route path="/tracker" component={TrackerPage} />
       <Route path="/jobs/:id" component={JobDetailsPage} />

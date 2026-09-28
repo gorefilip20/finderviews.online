@@ -344,7 +344,7 @@ async function fetchWwrRss(): Promise<FreshJob[]> {
 type AdzunaJob = { id?: string | number; title?: string; company?: { display_name?: string }; location?: { display_name?: string }; description?: string; created?: string; redirect_url?: string; category?: { label?: string }; contract_type?: string; contract_time?: string; salary_min?: number; salary_max?: number; salary_is_predicted?: string; }; type AdzunaResponse = { results?: AdzunaJob[] };
 function mapAdzunaJob(job: AdzunaJob, now = Date.now()): FreshJob | null {
   if (!job.title || !job.company?.display_name || !job.created || !job.redirect_url) return null;
-  const publishedMs = Date.parse(job.created); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const publishedMs = Date.parse(job.created); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs < -12 * 60 * 60 * 1000) return null;
   const company = stripMarkup(job.company.display_name); const rawDescription = job.description || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const companyWebsite = extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); const salary = job.salary_min || job.salary_max ? `${job.salary_min || "?"}–${job.salary_max || "?"}${job.salary_is_predicted === "1" ? " (estimated)" : ""}` : undefined;
   return { id: `adzuna-${job.id || `${company}-${job.title}-${job.created}`}`, title: stripMarkup(job.title), company, geography: stripMarkup(job.location?.display_name) || "Europe", industry: [stripMarkup(job.category?.label)].filter(Boolean), jobType: [job.contract_type, job.contract_time].filter(Boolean).map((value) => stripMarkup(value)), level: "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(job.redirect_url), sourceName: ADZUNA_SOURCE_NAME, salary, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${company} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || job.redirect_url) };
 }
@@ -359,7 +359,7 @@ type TheirStackJob = { id?: string | number; job_id?: string | number; job_title
 function mapTheirStackJob(job: TheirStackJob, now = Date.now()): FreshJob | null {
   const title = job.job_title || job.title; const company = job.company_name || job.company?.name; const posted = job.date_posted || job.posted_at || job.created_at; const sourceUrl = job.final_url || job.url || job.source_url;
   if (!title || !company || !posted || !sourceUrl) return null;
-  const publishedMs = Date.parse(posted); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs > MAX_JOB_AGE_MS || ageMs < -12 * 60 * 60 * 1000) return null;
+  const publishedMs = Date.parse(posted); if (!Number.isFinite(publishedMs)) return null; const ageMs = now - publishedMs; if (ageMs < -12 * 60 * 60 * 1000) return null;
   const rawDescription = job.description || job.job_description || ""; const description = stripMarkup(rawDescription).slice(0, 7000); const cleanCompany = stripMarkup(company); const location = typeof job.location === "string" ? job.location : job.location?.display_name || [job.location?.city, job.location?.country].filter(Boolean).join(", "); const companyWebsite = job.company?.home_page_url || extractCompanyWebsite(rawDescription); const applyEmail = extractApplyEmail(rawDescription); const salary = job.salary_min || job.salary_max ? `${job.salary_currency || ""} ${job.salary_min || "?"}–${job.salary_max || "?"}`.trim() : undefined;
   return { id: `theirstack-${job.id || job.job_id || `${cleanCompany}-${title}-${posted}`}`, title: stripMarkup(title), company: cleanCompany, geography: stripMarkup(location) || job.job_country_code || "Europe", industry: [stripMarkup(job.category)].filter(Boolean), jobType: [stripMarkup(job.employment_type)].filter(Boolean), level: stripMarkup(job.seniority) || "Not specified", excerpt: description.slice(0, 480), description, postedAt: new Date(publishedMs).toISOString(), ageHours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))), sourceUrl: asSafeSourceUrl(sourceUrl), sourceName: THEIRSTACK_SOURCE_NAME, salary, contactStatus: "Use the original public listing or verify a company contact.", companyWebsite, applyEmail, contactSearchUrl: `https://www.google.com/search?q=${encodeURIComponent(`${cleanCompany} official website contact careers`)}`, hasActionableContact: Boolean(companyWebsite || applyEmail || sourceUrl) };
 }
@@ -441,13 +441,13 @@ export async function searchFreshJobs(input: FreshJobSearchInput) {
     providers.push({ name: WWR_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
   try {
-    adzunaJobs = (await fetchAdzuna(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role));
+    adzunaJobs = (await fetchAdzuna(input, role)).filter((job) => job.ageHours <= MAX_JOB_AGE_DAYS * 24).filter((job) => !hasRole || matchesRequestedRole(job, role));
     providers.push({ name: ADZUNA_SOURCE_NAME, status: adzunaJobs.length > 0 ? "ok" : process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY ? "empty" : "disabled", resultCount: adzunaJobs.length });
   } catch (error) {
     providers.push({ name: ADZUNA_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
   }
   try {
-    theirStackJobs = (await fetchTheirStack(input, role)).filter((job) => !hasRole || matchesRequestedRole(job, role));
+    theirStackJobs = (await fetchTheirStack(input, role)).filter((job) => job.ageHours <= MAX_JOB_AGE_DAYS * 24).filter((job) => !hasRole || matchesRequestedRole(job, role));
     providers.push({ name: THEIRSTACK_SOURCE_NAME, status: theirStackJobs.length > 0 ? "ok" : process.env.THEIRSTACK_API_KEY ? "empty" : "disabled", resultCount: theirStackJobs.length });
   } catch (error) {
     providers.push({ name: THEIRSTACK_SOURCE_NAME, status: "error", resultCount: 0, error: error instanceof Error ? error.message : "Provider request failed" });
