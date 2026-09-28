@@ -184,6 +184,12 @@ button:disabled { cursor: not-allowed; opacity: .72; }
 .tracker-card__select select { min-height: 31px; padding: 0 .4rem; border: 1px solid #d5dbd2; border-radius: .35rem; background: #fafbf8; color: #1d241f; font-size: .61rem; font-weight: 800; }
 .tracker-card > p { margin: .7rem 0 0; padding-top: .55rem; border-top: 1px solid #e2e5df; color: #7a857a; font-size: .6rem; line-height: 1.45; }
 .tracker-card__open { display: inline-flex; align-items: center; gap: .3rem; margin-top: .7rem; color: #648c23; font-size: .6rem; font-weight: 850; text-decoration: none; }
+.tracker-prep { margin-top:.7rem; padding:.65rem; border:1px solid #dce8c9; border-radius:.45rem; background:#f1f7e8; }
+.tracker-prep > span { color:#648c23; font:700 .5rem "DM Mono",monospace; letter-spacing:.06em; }
+.tracker-prep ul { display:grid; gap:.35rem; margin:.45rem 0 .55rem; padding-left:1rem; color:#52614e; font-size:.59rem; line-height:1.4; }
+.tracker-prep button { padding:.38rem .5rem; border:1px solid #b9cda3; border-radius:.3rem; background:#fff; color:#4f7038; font:700 .55rem "DM Mono",monospace; cursor:pointer; }
+.tracker-prep button:hover { background:#e5f0d8; }
+
 .tracker-loading { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 320px; color: #6c796d; font-size: .75rem; }
 .tracker-empty { min-height: 320px; }
 .jobs-pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 2rem; color: #6a756a; font: 600 .64rem "DM Mono", monospace; }
@@ -406,6 +412,21 @@ em::after { content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; 
 .hiring-body { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(345px, .82fr); gap: 1rem; margin-top: 1rem; }
 .job-results-panel, .hiring-detail-panel { min-height: 500px; border: 1px solid rgba(29,36,31,.23); border-radius: 1rem; overflow: hidden; background: #f7f6f1; box-shadow: 0 18px 38px rgba(29,36,31,.08); }
 .job-results-panel__top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 70px; padding: .95rem 1.05rem; border-bottom: 1px solid #d4d8d0; }
+.job-feed-controls { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.55rem 1.05rem; border-bottom:1px solid #d9ddd5; background:#fbfcf8; color:#788477; font:600 .54rem "DM Mono",monospace; letter-spacing:.04em; text-transform:uppercase; }
+.job-feed-toggle { display:inline-flex; align-items:center; gap:.35rem; padding:.42rem .55rem; border:1px solid #c8d1c3; border-radius:.4rem; background:#fff; color:#546052; font:700 .56rem "DM Mono",monospace; cursor:pointer; }
+.job-feed-toggle:hover, .job-feed-toggle--active { border-color:#6d8f43; background:#eaf2dd; color:#304531; }
+.fit-signal { margin-top:1rem; padding:.78rem; border:1px solid rgba(200,255,61,.28); border-radius:.58rem; background:rgba(200,255,61,.06); }
+.fit-signal__head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; }
+.fit-signal__head span { display:flex; align-items:center; gap:.35rem; color:#c8ff3d; font:600 .52rem "DM Mono",monospace; letter-spacing:.06em; }
+.fit-signal__head strong { color:#f7f6f1; font:700 1.1rem "Space Grotesk",sans-serif; }
+.fit-signal p { margin:.45rem 0 .65rem; color:#c6d0c2; font-size:.63rem; line-height:1.5; }
+.fit-signal__keywords { display:grid; gap:.55rem; }
+.fit-signal__keywords > div { display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; }
+.fit-signal__keywords small { width:100%; color:#8ea18d; font:600 .48rem "DM Mono",monospace; letter-spacing:.06em; }
+.fit-keyword { padding:.28rem .4rem; border-radius:.3rem; font:700 .53rem "DM Mono",monospace; }
+.fit-keyword--matched { background:#dcefc0; color:#3f6630; }
+.fit-keyword--missing { border:1px dashed #a89468; color:#d6c294; }
+
 .job-results-panel__top div { display: flex; min-width: 0; flex-direction: column; gap: .34rem; }
 .job-results-panel__top div > span { overflow: hidden; color: #223023; font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
 .job-results-panel__top small { color: #6d786d; font-size: .62rem; }
