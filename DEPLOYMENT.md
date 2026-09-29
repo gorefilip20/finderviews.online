@@ -16,6 +16,25 @@ The application should listen on the port supplied by Hostinger through `PORT`. 
 
 The repository intentionally does not approve native dependency build scripts in `pnpm-workspace.yaml`. This is important on Hostinger: running esbuild's postinstall binary check there can fail with `spawnSync .../esbuild/bin/esbuild EACCES`. Keep the Hostinger install command's `--ignore-scripts` flag enabled; the runtime-only build does not need any install hook.
 
+### Required Hostinger environment variables
+
+Set these in the Hostinger Node.js application's environment-variable panel; never commit their values:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | MySQL connection string for jobs, users, and application tracking. |
+| `JWT_SECRET` | Yes | Long random secret used to sign sessions. |
+| `VITE_APP_ID` | Yes | Manus OAuth application ID. |
+| `OAUTH_SERVER_URL` | Yes | Manus OAuth server URL for the application. |
+| `PORT` | Hostinger-provided | The Node.js application port; do not hard-code a public port. |
+| `BUILT_IN_FORGE_API_URL` | For AI features | Built-in AI service URL. |
+| `BUILT_IN_FORGE_API_KEY` | For AI features | Built-in AI service key. |
+| `OWNER_OPEN_ID` | Optional | Open ID that should receive admin role. |
+
+Copy `.env.example` as a naming reference. Create the MySQL database/user in Hostinger first, then set `DATABASE_URL` to the connection string Hostinger provides. Import the SQL files in this order through phpMyAdmin: `drizzle/0000_users.sql`, `drizzle/0001_jobs.sql`, and `drizzle/0002_application_tracking.sql`. The first migration is required because OAuth uses the `users` table even though older deployment archives did not include its migration.
+
+After saving variables and importing the schema, restart the Node.js application and verify `/api/jobs` and `/api/tracker` return JSON rather than `503 Database is not configured.`
+
 ## Important archive audit
 
 The supplied ZIP contains the client pages, server business logic, and a prebuilt backend bundle, but it does not contain several source support modules referenced by the TypeScript project, including `server/_core/*`, `client/src/_core/hooks/useAuth`, and `drizzle/schema.ts`. The repository now restores the missing client authentication hook and preserves the supplied backend bundle as `server/prebuilt-index.js`. The final deployment artifact is intentionally runtime-only, allowing Hostinger to install dependencies without invoking the native esbuild postinstall scripts.
