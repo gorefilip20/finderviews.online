@@ -34,48 +34,48 @@ import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
 import { and, desc, eq, gt, like, not, or, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
 
 // drizzle/schema.ts
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
-var users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
-  id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
+import { boolean, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+var userRole = pgEnum("user_role", ["user", "admin"]);
+var jobType = pgEnum("job_type", ["Remote", "Full-time", "Part-time", "Contract", "Hybrid"]);
+var trackingStatus = pgEnum("tracking_status", ["Wishlist", "Applied", "Interviewing", "Offered", "Rejected"]);
+var users = pgTable("users", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
+  role: userRole("role").default("user").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+  lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull()
 });
-var jobs = mysqlTable("jobs", {
-  id: int("id").autoincrement().primaryKey(),
+var jobs = pgTable("jobs", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   title: varchar("title", { length: 240 }).notNull(),
   companyName: varchar("companyName", { length: 240 }).notNull(),
   location: varchar("location", { length: 240 }).notNull(),
-  jobType: mysqlEnum("jobType", ["Remote", "Full-time", "Part-time", "Contract", "Hybrid"]).notNull(),
+  jobType: jobType("jobType").notNull(),
   category: varchar("category", { length: 120 }).notNull(),
   salaryRange: varchar("salaryRange", { length: 120 }),
   description: text("description").notNull(),
   requirements: text("requirements").notNull(),
   applicationContact: varchar("applicationContact", { length: 320 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  isActive: int("isActive").default(1).notNull()
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean("isActive").default(true).notNull()
 });
-var applicationTracking = mysqlTable("application_tracking", {
-  id: int("id").autoincrement().primaryKey(),
-  jobId: int("jobId").notNull(),
-  status: mysqlEnum("status", ["Wishlist", "Applied", "Interviewing", "Offered", "Rejected"]).default("Wishlist").notNull(),
+var applicationTracking = pgTable("application_tracking", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  jobId: integer("jobId").notNull(),
+  status: trackingStatus("status").default("Wishlist").notNull(),
   notes: text("notes"),
-  appliedDate: timestamp("appliedDate"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
+  appliedDate: timestamp("appliedDate", { withTimezone: true }),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  jobIdUnique: uniqueIndex("application_tracking_job_id_unique").on(table.jobId)
+}));
 
 // server/_core/env.ts
 var ENV = {
@@ -142,7 +142,9 @@ async function upsertUser(user) {
     if (Object.keys(updateSet).length === 0) {
       updateSet.lastSignedIn = /* @__PURE__ */ new Date();
     }
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    updateSet.updatedAt = /* @__PURE__ */ new Date();
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet
     });
   } catch (error) {

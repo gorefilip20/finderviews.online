@@ -22,7 +22,7 @@ Set these in the Hostinger Node.js application's environment-variable panel; nev
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | MySQL connection string for jobs, users, and application tracking. |
+| `DATABASE_URL` | Yes | Neon PostgreSQL connection string for jobs, users, and application tracking. |
 | `JWT_SECRET` | Yes | Long random secret used to sign sessions. |
 | `VITE_APP_ID` | Yes | Manus OAuth application ID. |
 | `OAUTH_SERVER_URL` | Yes | Manus OAuth server URL for the application. |
@@ -31,7 +31,7 @@ Set these in the Hostinger Node.js application's environment-variable panel; nev
 | `BUILT_IN_FORGE_API_KEY` | For AI features | Built-in AI service key. |
 | `OWNER_OPEN_ID` | Optional | Open ID that should receive admin role. |
 
-Copy `.env.example` as a naming reference. Create the MySQL database/user in Hostinger first, then set `DATABASE_URL` to the connection string Hostinger provides. Import the SQL files in this order through phpMyAdmin: `drizzle/0000_users.sql`, `drizzle/0001_jobs.sql`, and `drizzle/0002_application_tracking.sql`. The first migration is required because OAuth uses the `users` table even though older deployment archives did not include its migration.
+Copy `.env.example` as a naming reference. Create a Neon PostgreSQL project, copy its pooled connection string from the Neon dashboard, and set it as `DATABASE_URL` in Hostinger. Apply the schema either by running `drizzle/0000_users.sql`, `drizzle/0001_jobs.sql`, and `drizzle/0002_application_tracking.sql` in the Neon SQL Editor in that order, or from a trusted shell with `DATABASE_URL=... pnpm db:push`. The first migration is required because OAuth uses the `users` table even though older deployment archives did not include its migration.
 
 After saving variables and importing the schema, restart the Node.js application and verify `/api/jobs` and `/api/tracker` return JSON rather than `503 Database is not configured.`
 
@@ -45,7 +45,7 @@ The hiring signal feed now queries Jobicy first and uses the public Arbeitnow AP
 
 The homepage includes saved browser job alerts with optional email capture and a 30-minute refresh interval while an alert is active. It also includes a live urgent-opportunity board: authenticated employers or community members can publish a title, description, role, region, state/province, city, and urgency flag. The public board refreshes every 15 seconds, and urgent posts expire after 48 hours while normal posts expire after 7 days.
 
-Authentication is already wired through the existing Manus OAuth session flow. Employer profile management now requires a signed-in session and uses `/api/employer-profile`; urgent publishing uses `/api/opportunities`. In this runtime-only Hostinger package, these records are stored in JSON files beside the production runtime (`employer-profiles.json` and `urgent-opportunities.json`). Ensure the application directory is writable and backed up. For multi-instance scaling, moderation, audit history, and stronger durability, migrate these records to the configured MySQL database in a future schema migration.
+Authentication is already wired through the existing Manus OAuth session flow. Employer profile management now requires a signed-in session and uses `/api/employer-profile`; urgent publishing uses `/api/opportunities`. In this runtime-only Hostinger package, these records are stored in JSON files beside the production runtime (`employer-profiles.json` and `urgent-opportunities.json`). Ensure the application directory is writable and backed up. For multi-instance scaling, moderation, audit history, and stronger durability, migrate these records to the configured Neon database in a future schema migration.
 
 The external Jobicy feed remains subject to its published fair-use polling guidance; it cannot guarantee instant delivery of a newly posted external job. The near-real-time experience is therefore provided by the Finderviews urgent-opportunity publisher and 15-second board refresh, while third-party jobs remain source-attributed and periodically refreshed.
 

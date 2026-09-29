@@ -1,13 +1,17 @@
-CREATE TABLE IF NOT EXISTS `users` (
-  `id` int AUTO_INCREMENT NOT NULL,
-  `openId` varchar(64) NOT NULL,
-  `name` text,
-  `email` varchar(320),
-  `loginMethod` varchar(64),
-  `role` enum('user','admin') NOT NULL DEFAULT 'user',
-  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `lastSignedIn` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `users_id` PRIMARY KEY(`id`),
-  CONSTRAINT `users_openId_unique` UNIQUE(`openId`)
+DO $$ BEGIN
+  CREATE TYPE "user_role" AS ENUM ('user', 'admin');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "users" (
+  "id" integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  "openId" varchar(64) NOT NULL UNIQUE,
+  "name" text,
+  "email" varchar(320),
+  "loginMethod" varchar(64),
+  "role" "user_role" NOT NULL DEFAULT 'user',
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now(),
+  "lastSignedIn" timestamptz NOT NULL DEFAULT now()
 );
