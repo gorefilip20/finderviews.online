@@ -14,6 +14,8 @@ pnpm start
 
 The application should listen on the port supplied by Hostinger through `PORT`. The build copies the prebuilt frontend assets from `deploy/public` to `dist/public` and copies the production backend runtime to `dist/index.js`; Hostinger does not need to run Vite or esbuild.
 
+The repository intentionally does not approve native dependency build scripts in `pnpm-workspace.yaml`. This is important on Hostinger: running esbuild's postinstall binary check there can fail with `spawnSync .../esbuild/bin/esbuild EACCES`. Keep the Hostinger install command's `--ignore-scripts` flag enabled; the runtime-only build does not need any install hook.
+
 ## Important archive audit
 
 The supplied ZIP contains the client pages, server business logic, and a prebuilt backend bundle, but it does not contain several source support modules referenced by the TypeScript project, including `server/_core/*`, `client/src/_core/hooks/useAuth`, and `drizzle/schema.ts`. The repository now restores the missing client authentication hook and preserves the supplied backend bundle as `server/prebuilt-index.js`. The final deployment artifact is intentionally runtime-only, allowing Hostinger to install dependencies without invoking the native esbuild postinstall scripts.

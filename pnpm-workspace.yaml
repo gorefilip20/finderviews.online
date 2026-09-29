@@ -1,2 +1,4 @@
+# This runtime-only deployment does not need native dependency build scripts.
+# In particular, esbuild must not run its postinstall binary check on Hostinger.
 allowBuilds:
-  esbuild: true
+  esbuild: false
