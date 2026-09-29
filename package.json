@@ -10,7 +10,8 @@
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && cp -R deploy/public dist/public && cp server/prebuilt-index.js dist/index.js",
     "start": "NODE_ENV=production node dist/index.js",
-    "db:push": "drizzle-kit push",
+    "db:push": "node scripts/migrate-neon.mjs",
+    "db:push:drizzle": "drizzle-kit push",
     "seed:jobs": "node --experimental-strip-types scripts/seed-jobs.ts",
     "import:jobs": "node --experimental-strip-types scripts/import-jobs.ts",
     "sync:jobs": "node --experimental-strip-types scripts/sync-jobs.ts"

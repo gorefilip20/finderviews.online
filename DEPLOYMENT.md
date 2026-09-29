@@ -31,7 +31,24 @@ Set these in the Hostinger Node.js application's environment-variable panel; nev
 | `BUILT_IN_FORGE_API_KEY` | For AI features | Built-in AI service key. |
 | `OWNER_OPEN_ID` | Optional | Open ID that should receive admin role. |
 
-Copy `.env.example` as a naming reference. Create a Neon PostgreSQL project, copy its pooled connection string from the Neon dashboard, and set it as `DATABASE_URL` in Hostinger. Apply the schema either by running `drizzle/0000_users.sql`, `drizzle/0001_jobs.sql`, and `drizzle/0002_application_tracking.sql` in the Neon SQL Editor in that order, or from a trusted shell with `DATABASE_URL=... pnpm db:push`. The first migration is required because OAuth uses the `users` table even though older deployment archives did not include its migration.
+Copy `.env.example` as a naming reference. Create a Neon PostgreSQL project, copy its pooled connection string from the Neon dashboard, and set it as `DATABASE_URL` in Hostinger. Apply the schema either by running `drizzle/0000_users.sql`, `drizzle/0001_jobs.sql`, and `drizzle/0002_application_tracking.sql` in the Neon SQL Editor in that order, or with `pnpm db:push`. The `db:push` script is production-safe: it uses the installed `pg` driver directly, runs the SQL files in order inside one transaction, and takes a PostgreSQL advisory lock so two deployments cannot migrate concurrently. `pnpm db:push:drizzle` remains available for local Drizzle Kit schema-diff workflows.
+
+For a local shell, create a private `.env` or export the URL without committing it:
+
+```bash
+export DATABASE_URL='postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require'
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm db:push
+```
+
+For Hostinger SSH or its terminal, run the same command from the application root after confirming `DATABASE_URL` is present in the Node.js environment:
+
+```bash
+cd ~/domains/finderviews.online
+pnpm db:push
+```
+
+If Hostinger does not provide a post-deployment terminal, run `pnpm db:push` locally or paste the three SQL files into Neon’s SQL Editor. The first migration is required because OAuth uses the `users` table even though older deployment archives did not include its migration.
 
 After saving variables and importing the schema, restart the Node.js application and verify `/api/jobs` and `/api/tracker` return JSON rather than `503 Database is not configured.`
 
